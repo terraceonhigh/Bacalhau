@@ -14,12 +14,23 @@ A three-pane editor for long-form writing projects organized as hierarchical mar
 
 ## Getting started
 
-1. Download the zip for your platform from [Releases](https://github.com/terraceonhigh/Bacalhau/releases)
-2. Unzip into your project folder (the directory with your `.md` files)
+### Native app (recommended)
+
+1. Download from [Releases](https://github.com/terraceonhigh/Bacalhau/releases):
+   - **macOS:** `Bacalhau-...-macos.zip` (contains `Bacalhau.app`)
+   - **Linux:** `Bacalhau-...-linux.AppImage` (single file)
+2. Place in your project folder (next to your `chapters/` directory)
+3. Double-click. A browser tab opens. Start writing.
+
+On macOS, first launch requires right-click → Open (unsigned app). On Linux, `chmod +x` the AppImage first.
+
+### Portable (no build)
+
+1. Download the portable zip from Releases
+2. Unzip into your project folder
 3. Launch:
    - **macOS:** Double-click `Bacalhau.command`
-   - **Linux:** Double-click `Bacalhau.desktop`, or run `./Bacalhau` in a terminal
-4. A browser tab opens. Start writing.
+   - **Linux:** Run `./Bacalhau` in a terminal
 
 No install, no dependencies, no configuration. Just Python 3.
 
@@ -101,7 +112,10 @@ Concatenates all files in tree order into a single output file. Scene headings (
 | `Bacalhau` | Unix launcher (shell script, works everywhere) |
 | `Bacalhau.desktop` | Linux launcher (freedesktop `.desktop` entry) |
 | `DESIGN.md` | UI patterns and interaction conventions |
-| `release.sh` | Builds per-platform release zips |
+| `build.sh` | Produces `.app` (macOS) and `.AppDir`/`.AppImage` (Linux) |
+| `release.sh` | Runs `build.sh` then packages all release artifacts |
+| `icon.png` | Source icon (1024x1024 PNG) |
+| `packaging/` | Platform-specific launcher scripts and templates |
 
 ## Design
 

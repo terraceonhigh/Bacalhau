@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Bacalhau
+Comment=Browser-based manuscript editor
+Exec=AppRun
+Terminal=false
+Icon=bacalhau
+Categories=Office;TextEditor;

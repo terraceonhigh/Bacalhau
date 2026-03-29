@@ -1,0 +1,28 @@
+#!/bin/bash
+# Bacalhau AppImage entry point
+
+EDITOR="$APPDIR/usr/bin/editor.py"
+APPIMAGE_PARENT="$(dirname "${APPIMAGE:-$0}")"
+
+# Check for Python 3
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Error: Bacalhau requires Python 3, which was not found on your system." >&2
+    exit 1
+fi
+
+# Project directory resolution:
+# 1. chapters/ next to the .AppImage file
+# 2. chapters/ in the current working directory
+# 3. Create chapters/ next to the .AppImage (or ~/Bacalhau/chapters/ if that fails)
+if [ -d "$APPIMAGE_PARENT/chapters" ]; then
+    PROJECT="$APPIMAGE_PARENT/chapters"
+elif [ -d "$PWD/chapters" ]; then
+    PROJECT="$PWD/chapters"
+elif mkdir -p "$APPIMAGE_PARENT/chapters" 2>/dev/null; then
+    PROJECT="$APPIMAGE_PARENT/chapters"
+else
+    mkdir -p "$HOME/Bacalhau/chapters"
+    PROJECT="$HOME/Bacalhau/chapters"
+fi
+
+exec python3 "$EDITOR" "$PROJECT"

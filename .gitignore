@@ -1,2 +1,4 @@
 *.zip
+*.AppImage
+build/
 __pycache__/
