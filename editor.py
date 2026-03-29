@@ -1110,22 +1110,20 @@ function toggleSync() {
 
 // Editor scroll sync handled in the unified scroll listener above
 
-let previewScrollTimer = null;
+let previewSyncPending = false;
 document.getElementById('previewPane').addEventListener('scroll', () => {
   if (!syncLinked || syncSource === 'editor' || selectGuard) return;
-  clearTimeout(previewScrollTimer);
-  previewScrollTimer = setTimeout(() => {
-    if (selectGuard) return;
-    const visible = getVisibleChapter();
-    const fileChanged = visible && visible !== activeFile;
-    if (fileChanged) {
-      activeFile = visible;
-      renderTree();
-      highlightActiveHeader();
-    }
-    // Only sync position if we didn't just cross a file boundary
-    if (!fileChanged) syncPreviewToEditor();
-  }, 100);
+  const visible = getVisibleChapter();
+  const fileChanged = visible && visible !== activeFile;
+  if (fileChanged) {
+    activeFile = visible;
+    renderTree();
+    highlightActiveHeader();
+  }
+  if (!fileChanged && !previewSyncPending) {
+    previewSyncPending = true;
+    requestAnimationFrame(() => { syncPreviewToEditor(); previewSyncPending = false; });
+  }
 });
 
 // ── Utilities ────────────────────────────────────────────────────────────────
