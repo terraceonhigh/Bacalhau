@@ -164,8 +164,6 @@ def cmd_pdf(output, template_dir=None):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    global CHAPTERS_DIR
-
     args = sys.argv[1:]
     project_dir = None
     action = None
