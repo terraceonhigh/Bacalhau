@@ -762,7 +762,7 @@ function getVisibleEditorFile() {
   const editorScroll = document.getElementById('editorScroll');
   if (!editorScroll) return null;
   const rect = editorScroll.getBoundingClientRect();
-  const midY = rect.top + rect.height * 0.3;
+  const midY = rect.top + rect.height * 0.5;
   let best = null, bestDist = Infinity;
   document.querySelectorAll('.file-section').forEach(s => {
     const d = Math.abs(s.getBoundingClientRect().top - midY);
@@ -1010,7 +1010,7 @@ function syncEditorToPreview() {
   if (!editorScroll || !pane) return;
 
   // Find which file section is at the 30% viewport mark, and how far through it
-  const viewY = editorScroll.scrollTop + editorScroll.clientHeight * 0.3;
+  const viewY = editorScroll.scrollTop + editorScroll.clientHeight * 0.5;
   const sections = document.querySelectorAll('.file-section');
   let targetSection = null;
   let localRatio = 0;
@@ -1038,7 +1038,7 @@ function syncEditorToPreview() {
   const previewBot = idx + 1 < allAnchors.length ? allAnchors[idx + 1].offsetTop : pane.scrollHeight;
   const previewHeight = previewBot - previewTop;
 
-  const target = previewTop + localRatio * previewHeight - pane.clientHeight * 0.3;
+  const target = previewTop + localRatio * previewHeight - pane.clientHeight * 0.5;
   syncSource = 'editor';
   pane.scrollTop = Math.max(0, target);
   setTimeout(() => { syncSource = null; }, 300);
@@ -1050,7 +1050,7 @@ function syncPreviewToEditor() {
   if (!editorScroll || !pane) return;
 
   // Find which preview chapter is at the 30% viewport mark
-  const viewY = pane.scrollTop + pane.clientHeight * 0.3;
+  const viewY = pane.scrollTop + pane.clientHeight * 0.5;
   const allAnchors = Array.from(pane.querySelectorAll('.chapter-anchor'));
   let anchorIdx = 0;
   for (let i = allAnchors.length - 1; i >= 0; i--) {
@@ -1070,7 +1070,7 @@ function syncPreviewToEditor() {
   );
   if (!section) return;
 
-  const target = section.offsetTop + localRatio * section.offsetHeight - editorScroll.clientHeight * 0.3;
+  const target = section.offsetTop + localRatio * section.offsetHeight - editorScroll.clientHeight * 0.5;
   syncSource = 'preview';
   editorScroll.scrollTop = Math.max(0, target);
   setTimeout(() => { syncSource = null; }, 300);
@@ -1078,7 +1078,7 @@ function syncPreviewToEditor() {
 
 function getVisibleChapter() {
   const pane = document.getElementById('previewPane');
-  const midY = pane.getBoundingClientRect().top + pane.clientHeight * 0.3;
+  const midY = pane.getBoundingClientRect().top + pane.clientHeight * 0.5;
   const anchors = pane.querySelectorAll('.chapter-anchor');
   let best = null, bestDist = Infinity;
   for (const a of anchors) {
