@@ -20,6 +20,7 @@ import http.server
 import json
 import os
 import re
+import signal
 import shutil
 import stat
 import subprocess
@@ -1522,11 +1523,21 @@ def main():
         print(f"Error: not a directory: {CHAPTERS_DIR}", file=sys.stderr)
         sys.exit(1)
 
-    dirname = os.path.basename(CHAPTERS_DIR)
+    pid = os.getpid()
     server = http.server.HTTPServer(("127.0.0.1", port), Handler)
     url = f"http://localhost:{port}"
     print(f"Bacalhau: {url} — editing {CHAPTERS_DIR}")
+    print(f"PID: {pid} — kill with: kill {pid}")
     print("Press Ctrl+C to stop.")
+
+    def shutdown(signum, frame):
+        print(f"\nReceived signal {signum}, shutting down.")
+        server.server_close()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGHUP, shutdown)
+
     threading.Timer(0.5, lambda: webbrowser.open(url)).start()
 
     try:
