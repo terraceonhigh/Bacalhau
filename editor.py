@@ -616,10 +616,11 @@ button.primary:hover { opacity: 0.85; }
   <div class="sidebar-footer">
     <input type="file" id="openInput" accept=".bacalhau" style="display:none" onchange="handleOpenFile(this)">
     <input type="file" id="themeInput" accept=".css" style="display:none" onchange="handleImportTheme(this)">
-    <div style="display:flex;gap:4px;">
-      <button style="flex:1" onclick="document.getElementById('openInput').click()">Open File</button>
-      <button style="flex:1" onclick="openBrowse()">Browse</button>
-    </div>
+    <select id="openSelect" onchange="handleOpen(this.value); this.value='';" style="width:100%;padding:6px 14px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;cursor:pointer;">
+      <option value="" disabled selected>Open\u2026</option>
+      <option value="bacalhau">.bacalhau file</option>
+      <option value="folder">Folder</option>
+    </select>
     <select id="themeSelect" onchange="switchTheme(this.value)" style="width:100%;padding:5px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;">
       <option value="">No theme</option>
     </select>
@@ -643,8 +644,8 @@ button.primary:hover { opacity: 0.85; }
   <div class="welcome-card">
     <h2 style="color:var(--fg);margin:0 0 8px;font-size:22px;">Bacalhau</h2>
     <p style="color:var(--fg2);margin:0 0 20px;font-size:13px;">Open a manuscript to get started.</p>
-    <button style="margin:4px;padding:10px 24px;" onclick="document.getElementById('openInput').click()">Open .bacalhau File</button>
-    <button style="margin:4px;padding:10px 24px;" onclick="openBrowse()">Browse Folder</button>
+    <button style="margin:4px;padding:10px 24px;" onclick="document.getElementById('openInput').click()">Open .bacalhau</button>
+    <button style="margin:4px;padding:10px 24px;" onclick="openBrowse()">Open Folder</button>
     <button style="margin:4px;padding:10px 24px;" onclick="document.getElementById('welcomeOverlay').style.display='none';newFile('')">New Project</button>
   </div>
 </div>
@@ -1503,6 +1504,11 @@ async function saveBacalhau() {
   } catch(e) {
     setStatus('Save failed');
   }
+}
+
+function handleOpen(value) {
+  if (value === 'bacalhau') document.getElementById('openInput').click();
+  else if (value === 'folder') openBrowse();
 }
 
 async function handleOpenFile(input) {
