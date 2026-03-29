@@ -197,6 +197,14 @@ HTML = """\
   --border: #333;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Scrollbars — WebKit (Chrome, Safari, Edge) */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg3); }
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: var(--border) var(--bg); }
 body { font-family: -apple-system, "Helvetica Neue", sans-serif; background: var(--bg); color: var(--fg); display: flex; height: 100vh; overflow: hidden; }
 
 /* ── Sidebar ── */
