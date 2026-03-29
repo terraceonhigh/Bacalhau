@@ -774,17 +774,23 @@ function getVisibleEditorFile() {
 document.addEventListener('DOMContentLoaded', () => {
   const editorScroll = document.getElementById('editorScroll');
   if (!editorScroll) return;
+  let editorSyncTimer = null;
   editorScroll.addEventListener('scroll', () => {
     if (selectGuard) return;
     // Update active file immediately on every scroll
     const visible = getVisibleEditorFile();
-    if (visible && visible !== activeFile) {
+    const fileChanged = visible && visible !== activeFile;
+    if (fileChanged) {
       activeFile = visible;
       renderTree();
       highlightActiveHeader();
     }
-    // Sync to preview if linked
-    if (syncLinked && syncSource !== 'preview') syncEditorToPreview();
+    // Sync to preview if linked — debounce slightly to avoid feedback loops
+    // and skip the tick where activeFile just changed (prevents jumping)
+    if (syncLinked && syncSource !== 'preview' && !fileChanged) {
+      clearTimeout(editorSyncTimer);
+      editorSyncTimer = setTimeout(syncEditorToPreview, 16);
+    }
   });
 });
 
@@ -1036,7 +1042,7 @@ function syncEditorToPreview() {
   const target = previewTop + ratio * previewHeight - pane.clientHeight * 0.3;
   syncSource = 'editor';
   pane.scrollTop = Math.max(0, target);
-  setTimeout(() => { syncSource = null; }, 50);
+  setTimeout(() => { syncSource = null; }, 300);
 }
 
 function syncPreviewToEditor() {
@@ -1069,7 +1075,7 @@ function syncPreviewToEditor() {
   const target = section.offsetTop + ratio * section.offsetHeight - editorScroll.clientHeight * 0.3;
   syncSource = 'preview';
   editorScroll.scrollTop = Math.max(0, target);
-  setTimeout(() => { syncSource = null; }, 50);
+  setTimeout(() => { syncSource = null; }, 300);
 }
 
 function getVisibleChapter() {
