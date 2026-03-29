@@ -323,7 +323,7 @@ button.primary:hover { opacity: 0.85; }
 
 /* ── Sync Bar ── */
 .sync-bar {
-  width: 8px; min-width: 8px; background: var(--accent);
+  width: 2px; min-width: 2px; background: var(--accent);
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 6px;
   position: relative; z-index: 3;
