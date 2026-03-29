@@ -531,6 +531,24 @@ button.primary:hover { opacity: 0.85; }
   box-sizing: border-box;
 }
 .git-commit-area input:focus { border-color: var(--accent); outline: none; }
+
+/* ── Git History ── */
+.git-history { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 8px; }
+.git-commit-item {
+  padding: 6px 8px; border-radius: 3px; cursor: default;
+}
+.git-commit-item:hover { background: var(--bg3); }
+.git-commit-msg {
+  font-size: 12px; color: var(--fg); line-height: 1.4;
+  word-wrap: break-word;
+}
+.git-commit-meta {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 2px;
+}
+.git-commit-when { font-size: 10px; color: var(--fg3); }
+.git-commit-meta .git-action { opacity: 0; transition: opacity 0.1s; }
+.git-commit-item:hover .git-commit-meta .git-action { opacity: 1; }
 </style>
 <link id="theme-css" rel="stylesheet" href="">
 </head>
@@ -605,6 +623,7 @@ let collapsed = JSON.parse(localStorage.getItem('bc-collapsed') || '{}');
 let dragItem = null;
 let currentPanel = 'files';
 let gitState = null;
+let gitLog = [];
 
 // ── API ──────────────────────────────────────────────────────────────────────
 async function api(path, opts) {
@@ -1086,6 +1105,12 @@ async function refreshGit() {
   } catch(e) {
     gitState = { git_installed: false, is_repo: false, is_temp: false, files: [] };
   }
+  try {
+    const logData = await api('/api/git/log');
+    gitLog = logData.commits || [];
+  } catch(e) {
+    gitLog = [];
+  }
   renderGitPanel();
   updateGitBadge();
 }
@@ -1157,7 +1182,39 @@ function renderGitPanel() {
   html += '<button class="primary" onclick="gitCommit()">Commit</button>';
   html += '</div>';
 
+  // History
+  if (gitLog.length > 0) {
+    html += '<div class="git-history">';
+    html += '<div class="git-section-header"><span>History</span></div>';
+    for (const c of gitLog) {
+      html += '<div class="git-commit-item">';
+      html += '<div class="git-commit-msg">' + esc(c.message) + '</div>';
+      html += '<div class="git-commit-meta">';
+      html += '<span class="git-commit-when">' + esc(c.when) + '</span>';
+      html += '<button class="git-action" onclick="gitRestore(\\'' + esc(c.sha) + '\\')" title="Restore to this version">restore</button>';
+      html += '</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
   el.innerHTML = html;
+}
+
+async function gitRestore(sha) {
+  if (!confirm('Restore your manuscript to this version? Your current text will be saved as a new checkpoint first.')) return;
+  // Save any dirty files first
+  await saveFile();
+  // Stage and commit current state if there are changes
+  const status = await api('/api/git/status');
+  if (status.files && status.files.length > 0) {
+    await api('/api/git/stage', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({all: true})});
+    await api('/api/git/commit', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: 'Auto-save before restore'})});
+  }
+  const r = await api('/api/git/restore', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({sha})});
+  if (r.error) { setStatus(r.error); return; }
+  setStatus(r.message || 'Restored');
+  await loadTree();
 }
 
 async function gitInit() {
@@ -1729,6 +1786,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.serve_theme_css()
         elif self.path == "/api/git/status":
             self.git_status()
+        elif self.path == "/api/git/log":
+            self.git_log()
         else:
             self.send_json(404, {"error": "Not found"})
 
@@ -1763,6 +1822,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.git_unstage()
         elif self.path == "/api/git/commit":
             self.git_commit()
+        elif self.path == "/api/git/restore":
+            self.git_restore()
         else:
             self.send_json(404, {"error": "Not found"})
 
@@ -2478,6 +2539,69 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if m:
             sha = m.group(1)
         self.send_json(200, {"ok": True, "sha": sha})
+
+    def git_log(self):
+        if not _git_installed() or not _git_root():
+            self.send_json(200, {"commits": []})
+            return
+        # Scope log to the project directory
+        scope = CHAPTERS_DIR
+        root = _git_root()
+        parent = os.path.dirname(CHAPTERS_DIR) if CHAPTERS_DIR else None
+        if parent and parent != root:
+            scope = parent
+        rc, out, err = _run_git(
+            "log", "--format=%H\t%h\t%s\t%ar", "-20", "--", scope
+        )
+        if rc != 0:
+            self.send_json(200, {"commits": []})
+            return
+        commits = []
+        for line in out.strip().splitlines():
+            parts = line.split("\t", 3)
+            if len(parts) == 4:
+                commits.append({
+                    "sha": parts[0],
+                    "short": parts[1],
+                    "message": parts[2],
+                    "when": parts[3],
+                })
+        self.send_json(200, {"commits": commits})
+
+    def git_restore(self):
+        body = self.read_body()
+        sha = (body.get("sha") or "").strip()
+        if not sha:
+            self.send_json(400, {"error": "No commit specified"})
+            return
+        if not _git_has_commits():
+            self.send_json(400, {"error": "No commits to restore from"})
+            return
+        # Scope restore to the project directory
+        scope = CHAPTERS_DIR
+        root = _git_root()
+        parent = os.path.dirname(CHAPTERS_DIR) if CHAPTERS_DIR else None
+        if parent and parent != root:
+            scope = parent
+        # Checkout all project files from that commit
+        rc, out, err = _run_git("checkout", sha, "--", scope)
+        if rc != 0:
+            self.send_json(500, {"error": err.strip()})
+            return
+        # Find the original commit message for the auto-commit
+        rc2, msg_out, _ = _run_git("log", "--format=%s", "-1", sha)
+        orig_msg = msg_out.strip() if rc2 == 0 else sha[:7]
+        # Stage and auto-commit
+        _run_git("add", "--", scope)
+        rc3, out3, err3 = _run_git("commit", "-m", "Restored to: " + orig_msg)
+        if rc3 != 0:
+            # Might fail if nothing actually changed
+            if "nothing to commit" in err3 or "nothing to commit" in out3:
+                self.send_json(200, {"ok": True, "message": "Already at that version"})
+                return
+            self.send_json(500, {"error": err3.strip()})
+            return
+        self.send_json(200, {"ok": True, "message": "Restored to: " + orig_msg})
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
