@@ -1119,8 +1119,14 @@ document.getElementById('previewPane').addEventListener('scroll', () => {
   previewScrollTimer = setTimeout(() => {
     if (selectGuard) return;
     const visible = getVisibleChapter();
-    if (visible && visible !== activeFile) selectFile(visible);
-    syncPreviewToEditor();
+    const fileChanged = visible && visible !== activeFile;
+    if (fileChanged) {
+      activeFile = visible;
+      renderTree();
+      highlightActiveHeader();
+    }
+    // Only sync position if we didn't just cross a file boundary
+    if (!fileChanged) syncPreviewToEditor();
   }, 100);
 });
 
