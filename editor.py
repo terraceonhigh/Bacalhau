@@ -996,6 +996,26 @@ async function buildEditor() {
       highlightActiveHeader();
       updateWordCount();
     });
+    ta.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      const val = ta.value;
+      const pos = ta.selectionStart;
+      if (e.key === 'ArrowUp' && pos === 0) {
+        // At the very start — move to previous textarea's end
+        const prev = ta.closest('.file-section').previousElementSibling;
+        if (prev) {
+          const prevTa = prev.querySelector('textarea');
+          if (prevTa) { e.preventDefault(); prevTa.focus(); prevTa.selectionStart = prevTa.selectionEnd = prevTa.value.length; }
+        }
+      } else if (e.key === 'ArrowDown' && pos === val.length) {
+        // At the very end — move to next textarea's start
+        const next = ta.closest('.file-section').nextElementSibling;
+        if (next) {
+          const nextTa = next.querySelector('textarea');
+          if (nextTa) { e.preventDefault(); nextTa.focus(); nextTa.selectionStart = nextTa.selectionEnd = 0; }
+        }
+      }
+    });
     section.appendChild(ta);
     container.appendChild(section);
 
