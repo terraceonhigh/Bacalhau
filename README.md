@@ -4,7 +4,7 @@
 
 # Bacalhau
 
-A browser-based manuscript editor for long-form writing projects. One Python file, no pip packages.
+A browser-based markdown manuscript editor for long-form writing projects. One Python file, no pip packages.
 
 ---
 
