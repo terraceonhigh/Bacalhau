@@ -390,6 +390,7 @@ button.primary:hover { opacity: 0.85; }
   <button class="sync-btn toggle" id="syncToggle" title="Toggle linked scrolling" onclick="toggleSync()">
     <span id="syncIcon">&#x1F517;</span>
   </button>
+  <button class="sync-btn" title="Load visible chapter in editor" onclick="syncPreviewToEditor()">&#x25C0;</button>
 </div>
 
 <div class="preview-pane" id="previewPane">
@@ -1105,7 +1106,17 @@ function toggleSync() {
 
 // Editor scroll sync handled in the unified scroll listener above
 
-// Preview scroll is passive — editor is the single source of truth for position.
+let previewScrollTimer = null;
+document.getElementById('previewPane').addEventListener('scroll', () => {
+  if (!syncLinked || syncSource === 'editor' || selectGuard) return;
+  clearTimeout(previewScrollTimer);
+  previewScrollTimer = setTimeout(() => {
+    if (selectGuard) return;
+    const visible = getVisibleChapter();
+    if (visible && visible !== activeFile) selectFile(visible);
+    syncPreviewToEditor();
+  }, 100);
+});
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
