@@ -49,10 +49,8 @@ Included in `portable/` for use without the native app:
 
 ## Requirements
 
-- **Python 3.6+** — the only runtime dependency
-- **A web browser** — Chrome, Firefox, Safari, Edge
-
-No pip packages, no npm, no CDN loads. The editor uses only the Python standard library. HTML, CSS, and JS are inline in `editor.py`.
+- **Python 3.6+**
+- **A web browser** — Chrome, Firefox, Safari, Edge, et cetera.
 
 ### For PDF export
 
