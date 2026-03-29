@@ -37,6 +37,68 @@ TEMP_DIR = None        # Temp extraction dir (cleaned up on exit)
 _last_heartbeat = time.time()
 
 
+# ── Git helpers ───────────────────────────────────────────────────────────────
+
+def _git_root():
+    """Find the git root directory, or None."""
+    if TEMP_DIR and CHAPTERS_DIR and CHAPTERS_DIR.startswith(TEMP_DIR):
+        return None  # Temp-extracted .bacalhau — no git
+    if CHAPTERS_DIR and os.path.isdir(os.path.join(CHAPTERS_DIR, ".git")):
+        return CHAPTERS_DIR
+    parent = os.path.dirname(CHAPTERS_DIR) if CHAPTERS_DIR else None
+    if parent and os.path.isdir(os.path.join(parent, ".git")):
+        return parent
+    return None
+
+
+def _run_git(*args, cwd=None):
+    """Run a git command and return (returncode, stdout, stderr)."""
+    git_cwd = cwd or _git_root() or CHAPTERS_DIR
+    try:
+        r = subprocess.run(
+            ["git"] + list(args),
+            cwd=git_cwd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return r.returncode, r.stdout, r.stderr
+    except FileNotFoundError:
+        return -1, "", "git is not installed"
+    except subprocess.TimeoutExpired:
+        return -1, "", "git command timed out"
+
+
+def _git_installed():
+    """Check if git is available."""
+    try:
+        subprocess.run(["git", "--version"], capture_output=True, timeout=5)
+        return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _git_has_commits():
+    """Check if the repo has at least one commit."""
+    rc, _, _ = _run_git("rev-parse", "HEAD")
+    return rc == 0
+
+
+def _git_resolve_path(short_path):
+    """Resolve a display path (relative to project) back to git-root-relative."""
+    root = _git_root()
+    if not root or not CHAPTERS_DIR:
+        return short_path
+    scope = CHAPTERS_DIR
+    parent = os.path.dirname(CHAPTERS_DIR)
+    if parent and parent != root:
+        scope = parent
+    if scope == root:
+        return short_path
+    rel_prefix = os.path.relpath(scope, root)
+    return os.path.join(rel_prefix, short_path)
+
+
 # ── Filesystem helpers ────────────────────────────────────────────────────────
 
 def read_order(directory):
@@ -289,6 +351,7 @@ body { font-family: -apple-system, "Helvetica Neue", sans-serif; background: var
   display: flex; flex-direction: column; gap: 6px;
 }
 .status { font-size: 11px; color: var(--fg3); min-height: 16px; }
+.word-count { font-size: 11px; color: var(--fg3); display: flex; justify-content: space-between; }
 button {
   padding: 6px 14px; border: 1px solid var(--border); border-radius: 3px;
   background: var(--bg3); color: var(--fg); cursor: pointer;
@@ -395,6 +458,79 @@ button.primary:hover { opacity: 0.85; }
 .preview-content strong { font-weight: 700; }
 .preview-content code { font-family: monospace; background: var(--bg3); padding: 1px 4px; border-radius: 2px; font-size: 0.9em; }
 .preview-content .chapter-anchor { display: block; position: relative; top: -20px; }
+
+/* ── Sidebar Tabs ── */
+.sidebar-tabs {
+  display: flex; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sidebar-tab {
+  flex: 1; padding: 8px 0; border: none; border-bottom: 2px solid transparent;
+  background: transparent; color: var(--fg3); font-size: 12px;
+  cursor: pointer; text-align: center; width: auto;
+}
+.sidebar-tab:hover { color: var(--fg2); background: transparent; }
+.sidebar-tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+.tab-badge {
+  display: inline-block; min-width: 16px; height: 16px; line-height: 16px;
+  border-radius: 8px; background: var(--accent); color: #fff;
+  font-size: 10px; text-align: center; margin-left: 4px;
+  padding: 0 4px; vertical-align: middle;
+}
+
+/* ── Git Panel ── */
+.git-panel {
+  flex: 1; overflow-y: auto; padding: 8px; font-size: 12px;
+}
+.git-message {
+  padding: 16px; color: var(--fg2); text-align: center; font-size: 12px; line-height: 1.5;
+}
+.git-section-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 8px 4px; color: var(--fg2); font-weight: 600; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+.git-section-header button {
+  width: auto; padding: 2px 6px; font-size: 10px; background: transparent;
+  border: 1px solid var(--border); border-radius: 2px; color: var(--fg3);
+  cursor: pointer;
+}
+.git-section-header button:hover { background: var(--bg3); color: var(--fg); }
+.git-file {
+  display: flex; align-items: center; padding: 3px 8px; border-radius: 3px; gap: 6px;
+}
+.git-file:hover { background: var(--bg3); }
+.git-badge {
+  display: inline-block; width: 16px; text-align: center;
+  font-weight: 700; font-size: 11px; flex-shrink: 0; font-family: monospace;
+}
+.git-badge.M { color: var(--accent); }
+.git-badge.A { color: #5bb55b; }
+.git-badge.D { color: #b55b5b; }
+.git-badge.Q { color: var(--fg3); }
+.git-badge.R { color: #b59b5b; }
+.git-file .git-path {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg);
+}
+.git-file .git-action {
+  width: auto; height: 18px; padding: 0 4px; border-radius: 2px;
+  font-size: 12px; line-height: 1; background: transparent;
+  border: 1px solid transparent; color: var(--fg3); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.1s;
+}
+.git-file:hover .git-action { opacity: 1; }
+.git-file .git-action:hover { background: var(--bg4); border-color: var(--border); color: var(--fg); }
+.git-commit-area {
+  margin-top: 12px; padding: 0 4px; display: flex; flex-direction: column; gap: 6px;
+}
+.git-commit-area input {
+  width: 100%; padding: 6px 8px; background: var(--bg3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 3px; font-size: 12px;
+  box-sizing: border-box;
+}
+.git-commit-area input:focus { border-color: var(--accent); outline: none; }
 </style>
 <link id="theme-css" rel="stylesheet" href="">
 </head>
@@ -408,7 +544,14 @@ button.primary:hover { opacity: 0.85; }
       <p>Click to edit. Drag to reorder.</p>
     </div>
   </div>
+  <div class="sidebar-tabs">
+    <button class="sidebar-tab active" data-panel="files" onclick="switchPanel('files')">Files</button>
+    <button class="sidebar-tab" data-panel="git" onclick="switchPanel('git')">Git <span id="gitBadge" class="tab-badge" style="display:none"></span></button>
+  </div>
   <div class="tree" id="tree"></div>
+  <div class="git-panel" id="gitPanel" style="display:none">
+    <div id="gitContent"></div>
+  </div>
   <div class="sidebar-footer">
     <input type="file" id="openInput" accept=".bacalhau" style="display:none" onchange="handleOpenFile(this)">
     <input type="file" id="themeInput" accept=".css" style="display:none" onchange="handleImportTheme(this)">
@@ -421,8 +564,9 @@ button.primary:hover { opacity: 0.85; }
       <option value="bacalhau">.bacalhau</option>
       <option value="zip">.zip</option>
       <option value="md">.md</option>
-      <option value="pdf">.pdf (requires Pandoc)</option>
+      <option value="pdf">.pdf</option>
     </select>
+    <div class="word-count" id="wordCount"></div>
     <div class="status" id="status"></div>
   </div>
 </div>
@@ -459,6 +603,8 @@ let dirty = false;  // legacy — per-file flags in fileDirtyFlags
 let saveTimer = null;  // legacy — per-file timers in fileSaveTimers
 let collapsed = JSON.parse(localStorage.getItem('bc-collapsed') || '{}');
 let dragItem = null;
+let currentPanel = 'files';
+let gitState = null;
 
 // ── API ──────────────────────────────────────────────────────────────────────
 async function api(path, opts) {
@@ -499,6 +645,8 @@ async function loadTree() {
   renderTree();
   await buildEditor();
   renderPreview();
+  updateWordCount();
+  refreshGit();
 }
 
 function renderTree() {
@@ -754,11 +902,13 @@ async function buildEditor() {
       clearTimeout(fileSaveTimers[f.path]);
       fileSaveTimers[f.path] = setTimeout(() => saveFileByPath(f.path), 1000);
       schedulePreviewUpdate();
+      updateWordCount();
     });
     ta.addEventListener('focus', () => {
       activeFile = f.path;
       renderTree();
       highlightActiveHeader();
+      updateWordCount();
     });
     section.appendChild(ta);
     container.appendChild(section);
@@ -806,6 +956,7 @@ async function saveFileByPath(path) {
   if (ind) { ind.textContent = 'saved'; ind.className = 'save-indicator'; }
   setTimeout(() => { if (!fileDirtyFlags[path] && ind) ind.textContent = ''; }, 2000);
   renderPreview();
+  refreshGit();
 }
 
 async function saveFile() {
@@ -915,6 +1066,129 @@ async function renderPreview() {
     html += md(content);
   }
   container.innerHTML = html;
+}
+
+// ── Git panel ────────────────────────────────────────────────────────────────
+
+function switchPanel(panel) {
+  currentPanel = panel;
+  document.getElementById('tree').style.display = panel === 'files' ? '' : 'none';
+  document.getElementById('gitPanel').style.display = panel === 'git' ? '' : 'none';
+  document.querySelectorAll('.sidebar-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.panel === panel);
+  });
+  if (panel === 'git') refreshGit();
+}
+
+async function refreshGit() {
+  try {
+    gitState = await api('/api/git/status');
+  } catch(e) {
+    gitState = { git_installed: false, is_repo: false, is_temp: false, files: [] };
+  }
+  renderGitPanel();
+  updateGitBadge();
+}
+
+function updateGitBadge() {
+  const badge = document.getElementById('gitBadge');
+  if (!gitState) { badge.style.display = 'none'; return; }
+  const count = gitState.files.length;
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function renderGitPanel() {
+  const el = document.getElementById('gitContent');
+  if (!gitState) { el.innerHTML = ''; return; }
+
+  if (!gitState.git_installed) {
+    el.innerHTML = '<div class="git-message">Git is not available on this system.<br><br>Install Git to enable version control.</div>';
+    return;
+  }
+  if (!gitState.is_repo) {
+    if (gitState.is_temp) {
+      el.innerHTML = '<div class="git-message">Git is not available for uploaded .bacalhau projects.<br><br>Save as a project directory to use Git.</div>';
+    } else {
+      el.innerHTML = '<div class="git-message">No repository found.<br><br><button class="primary" onclick="gitInit()" style="width:auto;padding:8px 20px;">Initialize Repository</button></div>';
+    }
+    return;
+  }
+
+  const staged = gitState.files.filter(f => f.staged);
+  const unstaged = gitState.files.filter(f => !f.staged);
+  let html = '';
+
+  // Staged changes
+  html += '<div class="git-section-header"><span>Staged Changes (' + staged.length + ')</span>';
+  if (staged.length > 0) html += '<button onclick="gitUnstage()">Unstage All</button>';
+  html += '</div>';
+  for (const f of staged) {
+    const badgeClass = f.status === '?' ? 'Q' : f.status;
+    const display = f.path.split('/').pop();
+    html += '<div class="git-file">';
+    html += '<span class="git-badge ' + esc(badgeClass) + '">' + esc(f.status) + '</span>';
+    html += '<span class="git-path" title="' + esc(f.path) + '">' + esc(display) + '</span>';
+    html += '<button class="git-action" onclick="gitUnstage(\\'' + esc(f.path).replace(/'/g, "\\\\'") + '\\')" title="Unstage">\\u2212</button>';
+    html += '</div>';
+  }
+
+  // Unstaged changes
+  html += '<div class="git-section-header"><span>Changes (' + unstaged.length + ')</span>';
+  if (unstaged.length > 0) html += '<button onclick="gitStage()">Stage All</button>';
+  html += '</div>';
+  for (const f of unstaged) {
+    const badgeClass = f.status === '?' ? 'Q' : f.status;
+    const display = f.path.split('/').pop();
+    html += '<div class="git-file">';
+    html += '<span class="git-badge ' + esc(badgeClass) + '">' + esc(f.status) + '</span>';
+    html += '<span class="git-path" title="' + esc(f.path) + '">' + esc(display) + '</span>';
+    html += '<button class="git-action" onclick="gitStage(\\'' + esc(f.path).replace(/'/g, "\\\\'") + '\\')" title="Stage">+</button>';
+    html += '</div>';
+  }
+
+  // Commit area
+  html += '<div class="git-commit-area">';
+  html += '<input type="text" id="gitCommitMsg" placeholder="Commit message" onkeydown="if(event.key===\\'Enter\\')gitCommit()">';
+  html += '<button class="primary" onclick="gitCommit()">Commit</button>';
+  html += '</div>';
+
+  el.innerHTML = html;
+}
+
+async function gitInit() {
+  setStatus('Initializing repository...');
+  const r = await api('/api/git/init', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+  if (r.error) { setStatus(r.error); return; }
+  setStatus('Repository initialized');
+  refreshGit();
+}
+
+async function gitStage(path) {
+  const body = path ? {path} : {all: true};
+  await api('/api/git/stage', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  refreshGit();
+}
+
+async function gitUnstage(path) {
+  const body = path ? {path} : {all: true};
+  await api('/api/git/unstage', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  refreshGit();
+}
+
+async function gitCommit() {
+  const input = document.getElementById('gitCommitMsg');
+  const msg = input.value.trim();
+  if (!msg) { setStatus('Commit message required'); return; }
+  const r = await api('/api/git/commit', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: msg})});
+  if (r.error) { setStatus(r.error); return; }
+  input.value = '';
+  setStatus('Committed ' + (r.sha || ''));
+  refreshGit();
 }
 
 // ── File operations ──────────────────────────────────────────────────────────
@@ -1306,6 +1580,30 @@ document.getElementById('previewPane').addEventListener('scroll', () => {
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
+function countWords(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\\s+/).length;
+}
+
+function updateWordCount() {
+  const el = document.getElementById('wordCount');
+  if (!el) return;
+  let fileWords = 0;
+  if (activeFile) {
+    const ta = document.querySelector('.file-section[data-path="' + activeFile + '"] textarea');
+    if (ta) fileWords = countWords(ta.value);
+  }
+  let totalWords = 0;
+  document.querySelectorAll('.file-section textarea').forEach(ta => {
+    totalWords += countWords(ta.value);
+  });
+  const parts = [];
+  if (activeFile) parts.push('File: ' + fileWords.toLocaleString());
+  parts.push('Total: ' + totalWords.toLocaleString());
+  el.textContent = parts.join(' \\u2022 ');
+}
+
 document.addEventListener('keydown', e => {
   if ((e.metaKey||e.ctrlKey) && e.key === 's') { e.preventDefault(); saveFile(); }
   if ((e.metaKey||e.ctrlKey) && e.key === 'o') { e.preventDefault(); document.getElementById('openInput').click(); }
@@ -1429,6 +1727,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json(200, {"ok": True})
         elif self.path.startswith("/api/themes/"):
             self.serve_theme_css()
+        elif self.path == "/api/git/status":
+            self.git_status()
         else:
             self.send_json(404, {"error": "Not found"})
 
@@ -1455,6 +1755,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.open_project()
         elif self.path == "/api/themes/import":
             self.import_theme()
+        elif self.path == "/api/git/init":
+            self.git_init()
+        elif self.path == "/api/git/stage":
+            self.git_stage()
+        elif self.path == "/api/git/unstage":
+            self.git_unstage()
+        elif self.path == "/api/git/commit":
+            self.git_commit()
         else:
             self.send_json(404, {"error": "Not found"})
 
@@ -2040,6 +2348,136 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with open(dest, "wb") as f:
             f.write(raw)
         self.send_json(200, {"ok": True, "name": name})
+
+    # ── Git endpoints ──────────────────────────────────────────────────────────
+
+    def git_status(self):
+        installed = _git_installed()
+        root = _git_root()
+        is_temp = bool(TEMP_DIR and CHAPTERS_DIR and CHAPTERS_DIR.startswith(TEMP_DIR))
+        if not installed:
+            self.send_json(200, {"git_installed": False, "is_repo": False, "is_temp": is_temp, "files": []})
+            return
+        if not root:
+            self.send_json(200, {"git_installed": True, "is_repo": False, "is_temp": is_temp, "files": []})
+            return
+        # Scope status to CHAPTERS_DIR (and its parent project dir) so we
+        # don't show unrelated files when the project is inside a larger repo
+        scope = CHAPTERS_DIR
+        parent = os.path.dirname(CHAPTERS_DIR) if CHAPTERS_DIR else None
+        if parent and parent != root:
+            scope = parent  # include project-level files too (e.g. _order.yaml)
+        rc, out, err = _run_git("status", "--porcelain=v1", "-uall", "--", scope)
+        if rc != 0:
+            self.send_json(500, {"error": err.strip()})
+            return
+        # Compute relative prefix so we can show short paths
+        rel_prefix = ""
+        if root and scope and scope.startswith(root):
+            rel_prefix = os.path.relpath(scope, root)
+            if rel_prefix == ".":
+                rel_prefix = ""
+        files = []
+        for line in out.splitlines():
+            if len(line) < 4:
+                continue
+            index_status = line[0]
+            worktree_status = line[1]
+            path = line[3:]
+            # Handle renamed files (old -> new)
+            if " -> " in path:
+                path = path.split(" -> ")[-1]
+            # Strip the scope prefix for cleaner display
+            if rel_prefix and path.startswith(rel_prefix + "/"):
+                path = path[len(rel_prefix) + 1:]
+            if index_status not in (" ", "?"):
+                files.append({"path": path, "status": index_status, "staged": True})
+            if worktree_status not in (" ", ""):
+                st = "?" if worktree_status == "?" else worktree_status
+                files.append({"path": path, "status": st, "staged": False})
+        self.send_json(200, {"git_installed": True, "is_repo": True, "is_temp": is_temp, "files": files})
+
+    def git_init(self):
+        is_temp = bool(TEMP_DIR and CHAPTERS_DIR and CHAPTERS_DIR.startswith(TEMP_DIR))
+        if is_temp:
+            self.send_json(400, {"error": "Cannot initialize git in a temporary project"})
+            return
+        # Prefer parent of chapters/ as the repo root
+        root = CHAPTERS_DIR
+        if root and os.path.basename(root) == "chapters":
+            root = os.path.dirname(root)
+        rc, out, err = _run_git("init", cwd=root)
+        if rc != 0:
+            self.send_json(500, {"error": err.strip()})
+            return
+        self.send_json(200, {"ok": True})
+
+    def git_stage(self):
+        body = self.read_body()
+        if body.get("all"):
+            # Stage all within the project scope
+            scope = CHAPTERS_DIR
+            parent = os.path.dirname(CHAPTERS_DIR) if CHAPTERS_DIR else None
+            root = _git_root()
+            if parent and parent != root:
+                scope = parent
+            rc, out, err = _run_git("add", "--", scope)
+        else:
+            path = body.get("path", "")
+            if not path:
+                self.send_json(400, {"error": "No path specified"})
+                return
+            rc, out, err = _run_git("add", "--", _git_resolve_path(path))
+        if rc != 0:
+            self.send_json(500, {"error": err.strip()})
+            return
+        self.send_json(200, {"ok": True})
+
+    def git_unstage(self):
+        body = self.read_body()
+        has_commits = _git_has_commits()
+        if body.get("all"):
+            # Unstage all within the project scope
+            scope = CHAPTERS_DIR
+            parent = os.path.dirname(CHAPTERS_DIR) if CHAPTERS_DIR else None
+            root = _git_root()
+            if parent and parent != root:
+                scope = parent
+            if has_commits:
+                rc, out, err = _run_git("reset", "HEAD", "--", scope)
+            else:
+                rc, out, err = _run_git("rm", "--cached", "-r", "--", scope)
+        else:
+            path = body.get("path", "")
+            if not path:
+                self.send_json(400, {"error": "No path specified"})
+                return
+            full_path = _git_resolve_path(path)
+            if has_commits:
+                rc, out, err = _run_git("reset", "HEAD", "--", full_path)
+            else:
+                rc, out, err = _run_git("rm", "--cached", "--", full_path)
+        if rc != 0:
+            self.send_json(500, {"error": err.strip()})
+            return
+        self.send_json(200, {"ok": True})
+
+    def git_commit(self):
+        body = self.read_body()
+        msg = (body.get("message") or "").strip()
+        if not msg:
+            self.send_json(400, {"error": "Commit message required"})
+            return
+        rc, out, err = _run_git("commit", "-m", msg)
+        if rc != 0:
+            self.send_json(500, {"error": err.strip()})
+            return
+        # Extract short SHA from output like "[main abc1234] message"
+        sha = ""
+        m = re.search(r'\[[\w/.-]+ ([a-f0-9]+)\]', out)
+        if m:
+            sha = m.group(1)
+        self.send_json(200, {"ok": True, "sha": sha})
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
