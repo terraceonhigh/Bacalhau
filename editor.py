@@ -278,7 +278,7 @@ button.primary:hover { opacity: 0.85; }
 .file-header {
   position: sticky; top: 0; z-index: 2;
   padding: 4px 16px; background: var(--bg2);
-  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--accent); border-bottom: 1px solid var(--accent);
   font-size: 11px; color: var(--fg3); font-family: monospace;
   display: flex; justify-content: space-between; align-items: center;
   cursor: pointer;
