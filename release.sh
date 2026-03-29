@@ -21,11 +21,11 @@ echo "  Created Bacalhau-${VERSION}-macos.zip"
 cd "$DIR"
 
 # macOS legacy (flat files)
-zip -j "Bacalhau-${VERSION}-macos-portable.zip" editor.py Bacalhau.command >/dev/null
+zip -j "Bacalhau-${VERSION}-macos-portable.zip" editor.py portable/Bacalhau.command >/dev/null
 echo "  Created Bacalhau-${VERSION}-macos-portable.zip"
 
 # Linux legacy (flat files)
-zip -j "Bacalhau-${VERSION}-linux-portable.zip" editor.py Bacalhau Bacalhau.desktop >/dev/null
+zip -j "Bacalhau-${VERSION}-linux-portable.zip" editor.py portable/Bacalhau portable/Bacalhau.desktop >/dev/null
 echo "  Created Bacalhau-${VERSION}-linux-portable.zip"
 
 # Copy AppImage if it was built

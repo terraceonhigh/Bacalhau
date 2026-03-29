@@ -1476,7 +1476,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(HTML.encode())
 
     def serve_favicon(self):
-        icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        icon = os.path.join(script_dir, "icons", "icon.png")
+        if not os.path.isfile(icon):
+            icon = os.path.join(script_dir, "icon.png")
         if os.path.exists(icon):
             with open(icon, "rb") as f:
                 data = f.read()

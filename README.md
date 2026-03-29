@@ -135,7 +135,7 @@ Scene headings (`### Title`) are auto-numbered sequentially, skipping `_part.md`
 - **Scroll sync.** Proportional per-file sync at display refresh rate. Centers on the viewport midpoint.
 - **Arbitrary depth.** Nest directories as deep as you like.
 - **PID management.** Prints PID on startup. SIGTERM/SIGHUP handled for clean shutdown. Relaunching kills the old instance.
-- **Favicon.** Serves `icon.png` as the browser tab icon.
+- **Favicon.** Serves `icons/icon.png` as the browser tab icon.
 - **Themed scrollbars.** WebKit + Firefox scrollbar styling follows the active theme.
 
 ## Files
@@ -144,17 +144,14 @@ Scene headings (`### Title`) are auto-numbered sequentially, skipping `_part.md`
 |------|-----------|
 | `editor.py` | The editor — serves the browser UI and all file APIs |
 | `assemble.py` | Concatenates a project into a single markdown/LaTeX/PDF |
-| `Bacalhau.command` | macOS portable launcher (double-click in Finder) |
-| `Bacalhau` | Unix portable launcher (shell script, works everywhere) |
-| `Bacalhau.desktop` | Linux portable launcher (freedesktop `.desktop` entry) |
-| `DESIGN.md` | UI patterns, color system, interaction conventions |
-| `CREDITS.md` | Icon attribution |
-| `icon.png` | Source icon — "Azulejos Portugueses - 11" by r2hox, CC BY-SA 2.0 |
-| `icon-source.jpg` | Original JPEG from Flickr |
+| `portable/` | Portable launchers (Bacalhau, Bacalhau.command, Bacalhau.desktop) |
+| `icons/` | Icon assets (`icon.png`, `icon-source.jpg`, `make_icon.py`) |
+| `themes/` | Bundled CSS themes (Azulejo, Calçada) |
+| `packaging/` | Platform-specific launcher scripts and `Info.plist` template |
 | `build.sh` | Produces `.app` (macOS) and `.AppDir`/`.AppImage` (Linux) |
 | `release.sh` | Runs `build.sh` then packages all release artifacts |
-| `make_icon.py` | Generates a placeholder icon (development only) |
-| `packaging/` | Platform-specific launcher scripts and `Info.plist` template |
+| `DESIGN.md` | UI patterns, color system, interaction conventions |
+| `CREDITS.md` | Icon attribution |
 
 ## Build requirements (development only)
 

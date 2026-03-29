@@ -6,7 +6,7 @@ set -euo pipefail
 VERSION="${1:-dev}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD="$DIR/build"
-ICON="$DIR/icon.png"
+ICON="$DIR/icons/icon.png"
 
 # Clean
 rm -rf "$BUILD"
@@ -14,7 +14,7 @@ mkdir -p "$BUILD"
 
 # Validate
 if [ ! -f "$ICON" ]; then
-    echo "Error: icon.png not found in repo root." >&2
+    echo "Error: icons/icon.png not found." >&2
     exit 1
 fi
 if [ ! -f "$DIR/editor.py" ]; then
