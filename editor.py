@@ -1192,6 +1192,11 @@ async function refreshGit() {
   } catch(e) {
     gitState = { git_installed: false, is_repo: false, is_temp: false, files: [] };
   }
+  // Auto-stage: keep all changes staged by default
+  if (gitState.is_repo && gitState.files && gitState.files.some(f => !f.staged)) {
+    await api('/api/git/stage', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({all: true})});
+    try { gitState = await api('/api/git/status'); } catch(e) {}
+  }
   try {
     const logData = await api('/api/git/log');
     gitLog = logData.commits || [];
