@@ -549,6 +549,51 @@ button.primary:hover { opacity: 0.85; }
 .git-commit-when { font-size: 10px; color: var(--fg3); }
 .git-commit-meta .git-action { opacity: 0; transition: opacity 0.1s; }
 .git-commit-item:hover .git-commit-meta .git-action { opacity: 1; }
+
+/* ── Browse Modal ── */
+.browse-overlay {
+  position: fixed; inset: 0; z-index: 101;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.6);
+}
+.browse-modal {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+  width: 480px; max-height: 70vh; display: flex; flex-direction: column;
+}
+.browse-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.browse-title { font-size: 14px; font-weight: 600; color: var(--fg); }
+.browse-close {
+  width: auto; padding: 0 6px; background: transparent; border: none;
+  color: var(--fg3); font-size: 18px; cursor: pointer; line-height: 1;
+}
+.browse-close:hover { color: var(--fg); background: transparent; }
+.browse-breadcrumb {
+  padding: 8px 16px; font-size: 12px; color: var(--fg3);
+  border-bottom: 1px solid var(--border); overflow-x: auto; white-space: nowrap;
+}
+.browse-breadcrumb span { cursor: pointer; color: var(--fg2); }
+.browse-breadcrumb span:hover { color: var(--accent); }
+.browse-breadcrumb .sep { cursor: default; color: var(--fg3); margin: 0 2px; }
+.browse-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+.browse-item {
+  display: flex; align-items: center; padding: 6px 16px; gap: 8px;
+  cursor: pointer;
+}
+.browse-item:hover { background: var(--bg3); }
+.browse-item.is-project { border-left: 2px solid var(--accent); }
+.browse-icon { flex-shrink: 0; font-size: 14px; }
+.browse-name { flex: 1; font-size: 13px; color: var(--fg); }
+.browse-hint { font-size: 11px; color: var(--fg3); }
+.browse-empty { padding: 24px 16px; text-align: center; color: var(--fg3); font-size: 12px; }
+.browse-footer {
+  padding: 12px 16px; border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.browse-footer button { width: auto; }
+.browse-actions { display: flex; gap: 6px; }
 </style>
 <link id="theme-css" rel="stylesheet" href="">
 </head>
@@ -573,7 +618,10 @@ button.primary:hover { opacity: 0.85; }
   <div class="sidebar-footer">
     <input type="file" id="openInput" accept=".bacalhau" style="display:none" onchange="handleOpenFile(this)">
     <input type="file" id="themeInput" accept=".css" style="display:none" onchange="handleImportTheme(this)">
-    <button onclick="document.getElementById('openInput').click()">Open</button>
+    <div style="display:flex;gap:4px;">
+      <button style="flex:1" onclick="document.getElementById('openInput').click()">Open File</button>
+      <button style="flex:1" onclick="openBrowse()">Browse</button>
+    </div>
     <select id="themeSelect" onchange="switchTheme(this.value)" style="width:100%;padding:5px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;">
       <option value="">No theme</option>
     </select>
@@ -598,7 +646,26 @@ button.primary:hover { opacity: 0.85; }
     <h2 style="color:var(--fg);margin:0 0 8px;font-size:22px;">Bacalhau</h2>
     <p style="color:var(--fg2);margin:0 0 20px;font-size:13px;">Open a manuscript to get started.</p>
     <button style="margin:4px;padding:10px 24px;" onclick="document.getElementById('openInput').click()">Open .bacalhau File</button>
+    <button style="margin:4px;padding:10px 24px;" onclick="openBrowse()">Browse Folder</button>
     <button style="margin:4px;padding:10px 24px;" onclick="document.getElementById('welcomeOverlay').style.display='none';newFile('')">New Project</button>
+  </div>
+</div>
+
+<div id="browseOverlay" class="browse-overlay" style="display:none">
+  <div class="browse-modal">
+    <div class="browse-header">
+      <span class="browse-title">Open Folder</span>
+      <button class="browse-close" onclick="closeBrowse()">&times;</button>
+    </div>
+    <div class="browse-breadcrumb" id="browseBreadcrumb"></div>
+    <div class="browse-list" id="browseList"></div>
+    <div class="browse-footer">
+      <div class="browse-hint" id="browseFooterHint"></div>
+      <div class="browse-actions">
+        <button onclick="closeBrowse()">Cancel</button>
+        <button class="primary" onclick="browseOpenHere()">Open Here</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1443,6 +1510,106 @@ async function handleOpenFile(input) {
   }
 }
 
+// ── Folder browser ───────────────────────────────────────────────────────────
+let browsePath = null;
+let browseData = null;
+
+async function openBrowse() {
+  document.getElementById('browseOverlay').style.display = 'flex';
+  await browseTo(null);
+}
+
+function closeBrowse() {
+  document.getElementById('browseOverlay').style.display = 'none';
+}
+
+async function browseTo(path) {
+  const url = path ? '/api/browse?path=' + encodeURIComponent(path) : '/api/browse';
+  try {
+    const data = await api(url);
+    if (data.error) { setStatus(data.error); return; }
+    browseData = data;
+    browsePath = data.path;
+    renderBrowse();
+  } catch(e) {
+    setStatus('Browse failed');
+  }
+}
+
+function renderBrowse() {
+  // Breadcrumb
+  const bc = document.getElementById('browseBreadcrumb');
+  const homePath = browseData.home || '';
+  let html = '<span onclick="browseTo(null)">Home</span>';
+  if (!browseData.atHome) {
+    const rel = browseData.path.slice(homePath.length).replace(/^\\//, '');
+    const segments = rel.split('/');
+    for (let i = 0; i < segments.length; i++) {
+      const segPath = homePath + '/' + segments.slice(0, i + 1).join('/');
+      html += '<span class="sep"> / </span><span onclick="browseTo(\\'' + esc(segPath).replace(/'/g, "\\\\'") + '\\')">' + esc(segments[i]) + '</span>';
+    }
+  }
+  bc.innerHTML = html;
+
+  // Directory list
+  const list = document.getElementById('browseList');
+  html = '';
+
+  // Parent directory link
+  if (browseData.parent) {
+    html += '<div class="browse-item" onclick="browseTo(\\'' + esc(browseData.parent).replace(/'/g, "\\\\'") + '\\')">';
+    html += '<span class="browse-icon">\\u2190</span>';
+    html += '<span class="browse-name" style="color:var(--fg2)">..</span>';
+    html += '</div>';
+  }
+
+  if (browseData.entries.length === 0 && !browseData.parent) {
+    html += '<div class="browse-empty">This folder is empty</div>';
+  }
+
+  for (const e of browseData.entries) {
+    const cls = e.isProject ? 'browse-item is-project' : 'browse-item';
+    const entryPath = browseData.path + '/' + e.name;
+    html += '<div class="' + cls + '" onclick="browseTo(\\'' + esc(entryPath).replace(/'/g, "\\\\'") + '\\')">';
+    html += '<span class="browse-icon">\\uD83D\\uDCC1</span>';
+    html += '<span class="browse-name">' + esc(e.name) + '</span>';
+    if (e.mdCount > 0) {
+      html += '<span class="browse-hint">' + e.mdCount + ' .md</span>';
+    }
+    html += '</div>';
+  }
+
+  list.innerHTML = html;
+
+  // Footer hint
+  const hint = document.getElementById('browseFooterHint');
+  if (browseData.mdCount > 0) {
+    hint.textContent = browseData.mdCount + ' markdown file' + (browseData.mdCount === 1 ? '' : 's') + ' here';
+  } else {
+    hint.textContent = 'No markdown files here';
+  }
+}
+
+async function browseOpenHere() {
+  if (!browsePath) return;
+  if (browseData && browseData.mdCount === 0 && !confirm('This folder has no markdown files. Open anyway?')) return;
+  setStatus('Opening folder\\u2026');
+  try {
+    const r = await api('/api/open/folder', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: browsePath})
+    });
+    if (r.error) { setStatus(r.error); return; }
+    closeBrowse();
+    document.getElementById('welcomeOverlay').style.display = 'none';
+    await loadTree();
+    setStatus('Opened ' + browsePath.split('/').pop());
+  } catch(e) {
+    setStatus('Open failed');
+  }
+}
+
 async function saveProject() {
   setStatus('Saving...');
   const r = await fetch('/api/save/zip');
@@ -1810,6 +1977,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.git_status()
         elif self.path == "/api/git/log":
             self.git_log()
+        elif self.path.startswith("/api/browse"):
+            self.browse_directory()
         else:
             self.send_json(404, {"error": "Not found"})
 
@@ -1846,6 +2015,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.git_commit()
         elif self.path == "/api/git/restore":
             self.git_restore()
+        elif self.path == "/api/open/folder":
+            self.open_folder()
         else:
             self.send_json(404, {"error": "Not found"})
 
@@ -2386,6 +2557,90 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if old_temp and os.path.isdir(old_temp):
             shutil.rmtree(old_temp, ignore_errors=True)
         self.send_json(200, {"ok": True, "name": body.get("filename", "project.bacalhau")})
+
+    # ── Folder browser ──────────────────────────────────────────────────────────
+
+    def browse_directory(self):
+        """List subdirectories for the folder browser."""
+        home = os.path.expanduser("~")
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        req_path = qs.get("path", [None])[0]
+        target = os.path.realpath(req_path) if req_path else home
+        # Security: restrict to home directory
+        if not target.startswith(home):
+            self.send_json(403, {"error": "Access denied"})
+            return
+        if not os.path.isdir(target):
+            self.send_json(404, {"error": "Directory not found"})
+            return
+        try:
+            raw = os.listdir(target)
+        except PermissionError:
+            self.send_json(403, {"error": "Permission denied"})
+            return
+        # Filter to visible directories only
+        dirs = []
+        for name in sorted(raw, key=str.lower):
+            if name.startswith("."):
+                continue
+            full = os.path.join(target, name)
+            if not os.path.isdir(full):
+                continue
+            # Count .md files and check for _order.yaml
+            try:
+                children = os.listdir(full)
+            except PermissionError:
+                children = []
+            md_count = sum(1 for c in children if c.endswith(".md"))
+            is_project = "_order.yaml" in children or md_count > 0
+            dirs.append({"name": name, "isProject": is_project, "mdCount": md_count})
+            if len(dirs) >= 200:
+                break
+        # Current directory info
+        try:
+            cur_children = os.listdir(target)
+        except PermissionError:
+            cur_children = []
+        cur_md = sum(1 for c in cur_children if c.endswith(".md"))
+        cur_is_project = "_order.yaml" in cur_children or cur_md > 0
+        parent = os.path.dirname(target)
+        if not parent.startswith(home):
+            parent = None
+        self.send_json(200, {
+            "path": target,
+            "home": home,
+            "parent": parent,
+            "atHome": target == home,
+            "isProject": cur_is_project,
+            "mdCount": cur_md,
+            "entries": dirs,
+        })
+
+    def open_folder(self):
+        """Switch to a local directory as the project."""
+        global CHAPTERS_DIR, BACALHAU_FILE, TEMP_DIR
+        home = os.path.expanduser("~")
+        body = self.read_body()
+        req_path = (body.get("path") or "").strip()
+        if not req_path:
+            self.send_json(400, {"error": "No path specified"})
+            return
+        target = os.path.realpath(req_path)
+        if not target.startswith(home):
+            self.send_json(403, {"error": "Access denied"})
+            return
+        if not os.path.isdir(target):
+            self.send_json(404, {"error": "Directory not found"})
+            return
+        # Save current project if it's a .bacalhau
+        _repack_bacalhau()
+        old_temp = TEMP_DIR
+        CHAPTERS_DIR = target
+        BACALHAU_FILE = None
+        TEMP_DIR = None
+        if old_temp and os.path.isdir(old_temp):
+            shutil.rmtree(old_temp, ignore_errors=True)
+        self.send_json(200, {"ok": True, "path": target})
 
     # ── Themes ─────────────────────────────────────────────────────────────────
 
