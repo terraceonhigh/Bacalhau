@@ -3,6 +3,17 @@
 
 EDITOR="$APPDIR/usr/bin/editor.py"
 APPIMAGE_PARENT="$(dirname "${APPIMAGE:-$0}")"
+PIDFILE="$HOME/.bacalhau.pid"
+
+# Kill any existing instance
+if [ -f "$PIDFILE" ]; then
+    OLD_PID=$(cat "$PIDFILE" 2>/dev/null)
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        kill "$OLD_PID" 2>/dev/null
+        sleep 0.5
+    fi
+    rm -f "$PIDFILE"
+fi
 
 # Check for Python 3
 if ! command -v python3 >/dev/null 2>&1; then
@@ -10,10 +21,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
-# Project directory resolution:
-# 1. chapters/ next to the .AppImage file
-# 2. chapters/ in the current working directory
-# 3. Create chapters/ next to the .AppImage (or ~/Bacalhau/chapters/ if that fails)
+# Project directory resolution
 if [ -d "$APPIMAGE_PARENT/chapters" ]; then
     PROJECT="$APPIMAGE_PARENT/chapters"
 elif [ -d "$PWD/chapters" ]; then
@@ -25,4 +33,9 @@ else
     PROJECT="$HOME/Bacalhau/chapters"
 fi
 
-exec python3 "$EDITOR" "$PROJECT"
+# Launch and write PID file
+python3 "$EDITOR" "$PROJECT" &
+echo $! > "$PIDFILE"
+
+trap "rm -f '$PIDFILE'" EXIT
+wait
