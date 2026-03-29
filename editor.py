@@ -331,8 +331,8 @@ button.primary:hover { opacity: 0.85; }
 .sync-btn {
   width: 26px; height: 26px; padding: 0; border-radius: 3px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; line-height: 1; background: var(--bg3);
-  border: 1px solid var(--border); color: var(--fg2); cursor: pointer;
+  font-size: 12px; line-height: 1; background: var(--bg2);
+  border: 1px solid var(--bg2); color: var(--accent); cursor: pointer;
 }
 .sync-btn:hover { background: var(--bg4); color: var(--fg); }
 .sync-btn.toggle.active { background: var(--accent); border-color: var(--accent); color: #fff; }
