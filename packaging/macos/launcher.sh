@@ -13,18 +13,21 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 # Project directory resolution:
-# 1. chapters/ next to the .app bundle
-# 2. chapters/ in the current working directory
-# 3. Create chapters/ next to the .app (or ~/Bacalhau/chapters/ if that fails)
+# 1. chapters/ next to the .app bundle (the intended workflow)
+# 2. chapters/ in the current working directory (terminal launch)
+# 3. Create chapters/ next to the .app
+# 4. Last resort: ~/Bacalhau/chapters/
 if [ -d "$PARENT/chapters" ]; then
     PROJECT="$PARENT/chapters"
 elif [ -d "$PWD/chapters" ]; then
     PROJECT="$PWD/chapters"
 elif mkdir -p "$PARENT/chapters" 2>/dev/null; then
     PROJECT="$PARENT/chapters"
+    osascript -e "display notification \"Created chapters/ in $(dirname "$APP_DIR")\" with title \"Bacalhau\"" 2>/dev/null
 else
     mkdir -p "$HOME/Bacalhau/chapters"
     PROJECT="$HOME/Bacalhau/chapters"
+    osascript -e 'display notification "Writing to ~/Bacalhau/chapters/" with title "Bacalhau"' 2>/dev/null
 fi
 
 exec python3 "$EDITOR" "$PROJECT"
