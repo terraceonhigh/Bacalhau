@@ -251,8 +251,8 @@ button {
   font-size: 12px; transition: background 0.1s; width: 100%;
 }
 button:hover { background: var(--bg4); }
-button.primary { background: var(--green); border-color: var(--green2); }
-button.primary:hover { background: var(--green2); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { opacity: 0.85; }
 
 /* ── Editor ── */
 .editor-pane {
