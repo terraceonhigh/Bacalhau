@@ -297,19 +297,6 @@ button {
 button:hover { background: var(--bg4); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover { opacity: 0.85; }
-.export-wrap { position: relative; }
-.export-menu {
-  display: none; position: absolute; bottom: 100%; left: 0; right: 0;
-  margin-bottom: 4px; background: var(--bg3); border: 1px solid var(--border);
-  border-radius: 3px; overflow: hidden; z-index: 50;
-}
-.export-menu.open { display: block; }
-.export-menu button {
-  border: none; border-radius: 0; text-align: left;
-  background: var(--bg3); width: 100%; padding: 7px 14px; font-size: 12px;
-}
-.export-menu button:hover { background: var(--bg4); }
-.export-menu button + button { border-top: 1px solid var(--border); }
 
 .welcome-overlay {
   position: fixed; inset: 0; z-index: 100;
@@ -429,17 +416,13 @@ button.primary:hover { opacity: 0.85; }
     <select id="themeSelect" onchange="switchTheme(this.value)" style="width:100%;padding:5px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;">
       <option value="">No theme</option>
     </select>
-    <button onclick="newFile('')">+ New Chapter</button>
-    <button onclick="newDir('')">+ New Folder</button>
-    <div class="export-wrap">
-      <div class="export-menu" id="exportMenu">
-        <button onclick="saveBacalhau()">Save .bacalhau</button>
-        <button onclick="saveProject()">Save .zip</button>
-        <button onclick="exportMarkdown()">Save .md</button>
-        <button onclick="exportPDF()">Save .pdf</button>
-      </div>
-      <button class="primary" id="exportBtn" onclick="toggleExportMenu(event)">Save As &uarr;</button>
-    </div>
+    <select id="saveAs" onchange="handleSaveAs(this.value); this.value='';" style="width:100%;padding:6px 14px;background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:3px;font-size:12px;cursor:pointer;">
+      <option value="" disabled selected>Save As\u2026</option>
+      <option value="bacalhau">.bacalhau</option>
+      <option value="zip">.zip</option>
+      <option value="md">.md</option>
+      <option value="pdf">.pdf (requires Pandoc)</option>
+    </select>
     <div class="status" id="status"></div>
   </div>
 </div>
@@ -588,7 +571,6 @@ function buildTreeUL(nodes, parentPath) {
         '<span class="label">'+esc(node.heading)+'</span>' +
         '<span class="count">'+childCount+'</span>' +
         '<span class="meatball">' +
-          '<span class="mb" title="Rename" data-action="rn">rn</span>' +
           '<span class="mb" title="Duplicate folder" data-action="cpdir">cp</span>' +
           '<span class="mb" title="New file here" data-action="newfile">+f</span>' +
           '<span class="mb" title="New subfolder" data-action="newdir">+d</span>' +
@@ -615,8 +597,7 @@ function buildTreeUL(nodes, parentPath) {
         btn.addEventListener('click', e => {
           e.stopPropagation();
           const action = btn.dataset.action;
-          if (action === 'rn') startInlineRename(row, node.path, node.name, 'dir');
-          else if (action === 'cpdir') copyDir(node.path);
+          if (action === 'cpdir') copyDir(node.path);
           else if (action === 'newfile') newFile(node.path);
           else if (action === 'newdir') newDir(node.path);
           else if (action === 'rmdir') removeDir(node.path);
@@ -648,7 +629,6 @@ function buildTreeUL(nodes, parentPath) {
         '<span class="icon">\\uD83D\\uDCC4</span>' +
         '<span class="label">'+(node.sceneNum ? node.sceneNum+'. ' : '')+esc(node.heading)+'</span>' +
         '<span class="meatball">' +
-          '<span class="mb" title="Rename" data-action="rn">rn</span>' +
           '<span class="mb" title="Duplicate" data-action="cp">cp</span>' +
           '<span class="mb" title="Delete" data-action="rm">rm</span>' +
           '<span class="mb" title="Toggle read-only" data-action="lock">'+lockIcon+'</span>' +
@@ -675,8 +655,7 @@ function buildTreeUL(nodes, parentPath) {
         btn.addEventListener('mouseup', e => {
           e.stopPropagation();
           const action = btn.dataset.action;
-          if (action === 'rn') startInlineRename(row, node.path, node.name, 'file');
-          else if (action === 'cp') copyFile(node.path);
+          if (action === 'cp') copyFile(node.path);
           else if (action === 'rm') removeFile(node.path);
           else if (action === 'lock') toggleLock(node.path);
         });
@@ -1034,10 +1013,15 @@ async function toggleLock(path) {
   await loadTree();
 }
 
+function handleSaveAs(fmt) {
+  if (fmt === 'bacalhau') saveBacalhau();
+  else if (fmt === 'zip') saveProject();
+  else if (fmt === 'md') exportMarkdown();
+  else if (fmt === 'pdf') exportPDF();
+}
+
 async function saveBacalhau() {
-  document.getElementById('exportMenu').classList.remove('open');
   setStatus('Saving .bacalhau\u2026');
-  document.getElementById('exportBtn').disabled = true;
   try {
     const r = await fetch('/api/save/bacalhau');
     if (!r.ok) {
@@ -1063,8 +1047,6 @@ async function saveBacalhau() {
     }
   } catch(e) {
     setStatus('Save failed');
-  } finally {
-    document.getElementById('exportBtn').disabled = false;
   }
 }
 
@@ -1107,16 +1089,8 @@ async function saveProject() {
   setStatus('Downloaded bone-china-chapters.zip');
 }
 
-function toggleExportMenu(e) {
-  e.stopPropagation();
-  document.getElementById('exportMenu').classList.toggle('open');
-}
-document.addEventListener('click', () => document.getElementById('exportMenu').classList.remove('open'));
-
 async function exportMarkdown() {
-  document.getElementById('exportMenu').classList.remove('open');
   setStatus('Generating...');
-  document.getElementById('exportBtn').disabled = true;
   const r = await fetch('/api/export/markdown');
   const blob = await r.blob();
   const url = URL.createObjectURL(blob);
@@ -1126,13 +1100,10 @@ async function exportMarkdown() {
   a.click();
   URL.revokeObjectURL(url);
   setStatus('Downloaded bone-china.md');
-  document.getElementById('exportBtn').disabled = false;
 }
 
 async function exportPDF() {
-  document.getElementById('exportMenu').classList.remove('open');
-  setStatus('Generating PDF…');
-  document.getElementById('exportBtn').disabled = true;
+  setStatus('Generating PDF\u2026');
   try {
     const r = await fetch('/api/export/pdf');
     if (!r.ok) {
@@ -1150,8 +1121,6 @@ async function exportPDF() {
     setStatus('Downloaded bone-china.pdf');
   } catch(e) {
     setStatus('PDF export failed');
-  } finally {
-    document.getElementById('exportBtn').disabled = false;
   }
 }
 
@@ -1853,9 +1822,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not _shutil.which("pandoc"):
             self.send_json(500, {"error": "pandoc not found. Install: brew install pandoc"})
             return
-        if not _shutil.which("xelatex"):
-            self.send_json(500, {"error": "xelatex not found. Install: brew install --cask mactex-no-gui"})
-            return
         # Assemble markdown with scene numbers
         parts = []
         counter = [0]
@@ -1869,14 +1835,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 content = re.sub(r"^(### )(.+)$", rf"\g<1>{n}. \2", content, count=1, flags=re.MULTILINE)
             parts.append(content)
         text = "".join(parts)
-        # Build pandoc command
-        cmd = ["pandoc", "--from", "markdown", "--to", "pdf", "--pdf-engine=xelatex"]
-        template_dir = os.path.join(os.path.dirname(CHAPTERS_DIR), "latex")
-        if os.path.isdir(template_dir):
-            t = os.path.join(template_dir, "template.tex")
-            m = os.path.join(template_dir, "metadata.yaml")
-            if os.path.exists(t): cmd += ["--template", t]
-            if os.path.exists(m): cmd += ["--metadata-file", m]
+        # Build pandoc command — use LaTeX engine if available, otherwise Pandoc's built-in
+        cmd = ["pandoc", "--from", "markdown"]
+        if _shutil.which("xelatex"):
+            cmd += ["--pdf-engine=xelatex"]
+        elif _shutil.which("pdflatex"):
+            cmd += ["--pdf-engine=pdflatex"]
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp_path = tmp.name
         try:

@@ -1,90 +1,85 @@
+<p align="center">
+  <img src="icons/icon.png" alt="Bacalhau" width="128">
+</p>
+
 # Bacalhau
 
-A browser-based manuscript editor. Zero runtime dependencies. One Python file.
+A browser-based manuscript editor for long-form writing projects. One Python file, no pip packages.
 
 ---
 
-## What this is
+![Bacalhau editor](icons/screenshot.png)
 
-A three-pane editor for long-form writing projects organized as hierarchical markdown files:
+## What it does
 
-- **Left:** File tree sidebar with drag-and-drop reordering, inline rename, and collapse/expand
-- **Center:** Continuous scroll markdown editor with per-file auto-save and spell check
-- **Right:** Live preview of the full manuscript with auto-numbering and scroll sync
+Three-pane layout for editing hierarchical markdown:
+
+- **Sidebar:** File tree with drag-and-drop reordering, inline rename, collapse/expand
+- **Editor:** Continuous scroll with per-file auto-save
+- **Preview:** Full manuscript with auto-numbered scene headings and scroll sync
+
+Projects are stored as plain markdown files on disk, organized in directories with `_order.yaml` for ordering.
 
 ## Getting started
 
-### Native app (recommended)
+### Native app
 
-1. Download from [Releases](https://github.com/terraceonhigh/Bacalhau/releases):
-   - **macOS:** `Bacalhau-...-macos.zip` (contains `Bacalhau.app`)
-   - **Linux:** `Bacalhau-...-linux.AppImage` (single file)
-2. Place in your project folder (next to your `chapters/` directory, or empty — it creates one)
-3. Double-click. A browser tab opens. Start writing.
+Download from [Releases](https://github.com/terraceonhigh/Bacalhau/releases):
 
-On macOS, first launch requires right-click → Open (unsigned app). On Linux, `chmod +x` the AppImage first.
+- **macOS:** `Bacalhau-...-macos.zip` (contains `Bacalhau.app`)
+- **Linux:** `Bacalhau-...-x86_64.AppImage`
 
-### Portable (no build)
+Double-click to launch. On macOS, first launch requires right-click → Open (unsigned). On Linux, `chmod +x` the AppImage first.
 
-1. Download the portable zip from Releases
-2. Unzip into your project folder
-3. Launch:
-   - **macOS:** Double-click `Bacalhau.command`
-   - **Linux:** Run `./Bacalhau` in a terminal
-
-### From the command line (any Unix)
+### Command line
 
 ```bash
-./Bacalhau                              # open the current directory
-./Bacalhau /path/to/project             # open a specific directory
-python3 editor.py <project-directory>   # direct invocation
-python3 editor.py --port 8080           # custom port
-python3 editor.py                       # defaults to chapters/ next to the script
+python3 editor.py <project-directory>
+python3 editor.py project.bacalhau        # open a .bacalhau file
+python3 editor.py --port 8080             # custom port
+python3 editor.py                         # no args — shows welcome screen
 ```
 
-## Runtime requirements
+### Portable launchers
 
-| Requirement | Version | Notes |
-|------------|---------|-------|
-| Python 3 | 3.6+ | The only runtime dependency. Pre-installed on macOS and most Linux. |
-| A web browser | Any modern | Chrome, Firefox, Safari, Edge. The editor serves on `localhost:3000`. |
+Included in `portable/` for use without the native app:
 
-**No other dependencies.** No npm, no pip packages, no CDN loads, no node_modules. The editor is Python stdlib + inline HTML/CSS/JS.
+- **macOS:** `Bacalhau.command` (double-click in Finder)
+- **Linux:** `Bacalhau` (shell script) or `Bacalhau.desktop`
 
-### Optional (for PDF export via `assemble.py`)
+## Requirements
 
-| Tool | Install | Purpose |
-|------|---------|---------|
-| Pandoc | `brew install pandoc` | Markdown → LaTeX/PDF conversion |
-| XeLaTeX | `brew install --cask mactex-no-gui` | PDF rendering with custom fonts |
+- **Python 3.6+** — the only runtime dependency
+- **A web browser** — Chrome, Firefox, Safari, Edge
+
+No pip packages, no npm, no CDN loads. The editor uses only the Python standard library. HTML, CSS, and JS are inline in `editor.py`.
+
+### For PDF export
+
+Requires [Pandoc](https://pandoc.org/): `brew install pandoc`
+
+For better typesetting, install a LaTeX distribution (optional — Pandoc can produce basic PDFs without one).
 
 ## Project structure
 
-A Bacalhau project is just a directory of markdown files:
-
 ```
 my-novel/
-  Bacalhau.app              # the editor (place here, double-click)
-  chapters/                 # created automatically on first launch
-    _order.yaml             # controls top-level order
+  chapters/
+    _order.yaml
     title.md
     part-one/
-      _order.yaml           # controls order within this part
-      _part.md              # part heading (## Part One)
+      _order.yaml
+      _part.md            # section heading (## Part One)
       chapter-one.md
       chapter-two.md
-    part-two/
-      _order.yaml
-      _part.md
-      chapter-three.md
-  themes/                   # optional — CSS theme files
-    azulejo.css
-    cobblestone-dark.css
+  latex/                   # optional — Pandoc templates
+    template.tex
+    metadata.yaml
 ```
 
 ### `_order.yaml`
 
-A simple list of filenames/directories controlling sibling order:
+Controls sibling order:
 
 ```yaml
 - title.md
@@ -92,91 +87,81 @@ A simple list of filenames/directories controlling sibling order:
 - part-two/
 ```
 
-Directories end with `/`. Files or directories not listed are appended alphabetically. If `_order.yaml` is missing, everything is sorted alphabetically.
+Directories end with `/`. Unlisted items are appended alphabetically. If the file is missing, everything is alphabetical.
 
 ### `_part.md`
 
-Optional file inside a directory containing a section heading (e.g., `## Part One`). Rendered before the directory's other files in the preview.
+Optional heading file inside a directory. Rendered before the directory's other files in the preview.
 
-### `themes/`
+## Save and export
 
-Optional directory next to `chapters/` containing `.css` files. Each file appears in the theme dropdown in the sidebar. Themes override CSS custom properties (`--bg`, `--accent`, etc.) to restyle the entire editor. See `DESIGN.md` for the full list of variables.
+### From the editor (Save As menu)
 
-## Assembly & export
-
-### From the editor
-
-- **Save .zip** — downloads `chapters/` as a zip archive
-- **Export .md** — assembles all chapters into a single numbered markdown file
+- **Save .bacalhau** — portable project file (ZIP with custom extension, bundles `chapters/` and `latex/`)
+- **Save .zip** — raw `chapters/` directory as a zip
+- **Save .md** — assembled manuscript with scene numbers
+- **Save .pdf** — via Pandoc + XeLaTeX
 
 ### From the command line
 
 ```bash
 python3 assemble.py chapters/ --concat -o manuscript.md
-python3 assemble.py chapters/ --latex -o manuscript.tex --templates latex/
-python3 assemble.py chapters/ --pdf -o manuscript.pdf --templates latex/
+python3 assemble.py chapters/ --latex  -o manuscript.tex --templates latex/
+python3 assemble.py chapters/ --pdf    -o manuscript.pdf --templates latex/
 ```
 
-Scene headings (`### Title`) are auto-numbered sequentially, skipping `_part.md` files and files prefixed with `intermezzo-`.
+### Opening .bacalhau files
 
-## Features
+```bash
+python3 editor.py project.bacalhau
+```
 
-- **Zero dependencies.** Python 3 stdlib only.
-- **Single file.** The editor is one Python file (~60KB) with inline HTML/CSS/JS.
-- **Filesystem is truth.** The directory structure IS the hierarchy. `_order.yaml` files control ordering.
-- **Continuous scroll editor.** All files as stacked textareas with file header bars between them.
-- **Auto-save.** Per-file, 1 second after you stop typing. `Cmd+S` to force-save all.
-- **Drag-and-drop.** Reorder files and directories. Drag a directory to move the entire subtree.
-- **Inline rename.** Double-click a label or use the `rn` button. Updates the `###` heading to match.
-- **File operations.** Copy, delete, read-only toggle (via filesystem permissions) — on hover meatball menu.
-- **New file/folder.** Click between items (PowerPoint-style) or use sidebar buttons. Creates inline, then renames.
-- **Auto-numbering.** Scene headings numbered by position, not stored in the files. Reorder and numbers update.
-- **Themes.** CSS files in `themes/` directory. Dropdown in sidebar. Persists in `localStorage`.
-- **Scroll sync.** Proportional per-file sync at display refresh rate. Centers on the viewport midpoint.
-- **Arbitrary depth.** Nest directories as deep as you like.
-- **PID management.** Prints PID on startup. SIGTERM/SIGHUP handled for clean shutdown. Relaunching kills the old instance.
-- **Favicon.** Serves `icons/icon.png` as the browser tab icon.
-- **Themed scrollbars.** WebKit + Firefox scrollbar styling follows the active theme.
+Or use Cmd+O / the Open button in the sidebar. The file is extracted to a temp directory; edits are saved back on close.
+
+## Themes
+
+Four themes are bundled: Azulejo, Azulejo Dark, Calçada, Calçada Dark. Select from the dropdown in the sidebar.
+
+To add a custom theme, choose "Import theme..." from the dropdown and select a `.css` file. Imported themes are stored in:
+
+- macOS: `~/Library/Application Support/Bacalhau/themes/`
+- Linux: `~/.local/share/Bacalhau/themes/`
+
+Themes override CSS custom properties (`--bg`, `--accent`, etc.). See `DESIGN.md` for the full variable list.
 
 ## Files
 
-| File | What it is |
-|------|-----------|
-| `editor.py` | The editor — serves the browser UI and all file APIs |
-| `assemble.py` | Concatenates a project into a single markdown/LaTeX/PDF |
-| `portable/` | Portable launchers (Bacalhau, Bacalhau.command, Bacalhau.desktop) |
-| `icons/` | Icon assets (`icon.png`, `icon-source.jpg`, `make_icon.py`) |
-| `themes/` | Bundled CSS themes (Azulejo, Calçada) |
-| `packaging/` | Platform-specific launcher scripts and `Info.plist` template |
-| `build.sh` | Produces `.app` (macOS) and `.AppDir`/`.AppImage` (Linux) |
-| `release.sh` | Runs `build.sh` then packages all release artifacts |
-| `DESIGN.md` | UI patterns, color system, interaction conventions |
+| Path | Description |
+|------|-------------|
+| `editor.py` | The editor — HTTP server, browser UI, all file APIs |
+| `assemble.py` | CLI tool — concatenates chapters into markdown/LaTeX/PDF |
+| `themes/` | Bundled CSS themes |
+| `icons/` | Icon assets and generator script |
+| `portable/` | Portable launchers for use without native packaging |
+| `packaging/` | Platform-specific launcher scripts and Info.plist template |
+| `build.sh` | Builds `.app` (macOS) and `.AppDir`/`.AppImage` (Linux) |
+| `release.sh` | Runs `build.sh`, packages release zips |
+| `DESIGN.md` | UI specification |
 | `CREDITS.md` | Icon attribution |
 
-## Build requirements (development only)
+## Building
 
-These are only needed if you're building the native packages — not for using the editor.
+Only needed for producing native packages.
 
 | Tool | Platform | Purpose |
 |------|----------|---------|
-| `sips` | macOS (built-in) | Resizes icon PNG to required sizes |
-| `iconutil` | macOS (built-in) | Converts `.iconset` to `.icns` |
-| `appimagetool` | Linux | Packages AppDir into `.AppImage` |
-| `zip` | Any Unix | Packaging release zips |
+| `sips`, `iconutil` | macOS (built-in) | Icon conversion |
+| `appimagetool` | Linux | AppImage packaging |
 
 ```bash
-./build.sh v1.0          # builds .app + .AppDir
-./release.sh v1.0        # builds + packages all release artifacts
+./build.sh v1.0.0
+./release.sh v1.0.0
 ```
-
-## Design
-
-See `DESIGN.md` for the full UI specification: layout, color system, drag-and-drop conventions, the mouseup pattern for draggable elements, scroll sync architecture, and theming.
 
 ## Known limitations
 
-- **No collaborative editing.** Single-user, local files only.
-- **No syntax highlighting** in the editor. It's a `<textarea>`, not CodeMirror. This is intentional — zero dependencies.
-- **Scroll sync is proportional, not line-exact.** The editor and preview render at different heights per file. The midpoint is synced; top and bottom may drift.
-- **Unsigned on macOS.** First launch requires right-click → Open. Signing requires an Apple Developer account ($99/year).
-- **AppImage requires system Python.** The AppImage does not bundle a Python interpreter (Option A packaging). A future version may bundle one via PyInstaller (Option B).
+- Single-user, local files only. No collaboration.
+- The editor uses `<textarea>` — no syntax highlighting.
+- Scroll sync is proportional, not line-exact. Drift increases toward the edges of long files.
+- Unsigned on macOS. First launch requires right-click → Open.
+- The AppImage requires system Python 3.

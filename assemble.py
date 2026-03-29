@@ -145,7 +145,7 @@ def cmd_pdf(output, template_dir=None):
         print("Error: pandoc not found. Install: brew install pandoc", file=sys.stderr)
         sys.exit(1)
     if not shutil.which("xelatex"):
-        print("Error: xelatex not found. Install: brew install --cask mactex-no-gui", file=sys.stderr)
+        print("Error: xelatex not found. Install: brew install --cask basictex && sudo tlmgr install xetex", file=sys.stderr)
         sys.exit(1)
     text = concatenate()
     cmd = ["pandoc", "--from", "markdown", "--to", "pdf", "--pdf-engine=xelatex", "-o", output]
