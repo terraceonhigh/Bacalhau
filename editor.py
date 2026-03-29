@@ -1308,6 +1308,8 @@ async function gitCommit() {
   const input = document.getElementById('gitCommitMsg');
   const msg = input.value.trim();
   if (!msg) { setStatus('Commit message required'); return; }
+  // Auto-stage all changes so writers don't have to think about staging
+  await api('/api/git/stage', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({all: true})});
   const r = await api('/api/git/commit', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: msg})});
   if (r.error) { setStatus(r.error); return; }
   input.value = '';
