@@ -1002,26 +1002,73 @@ function getChapterRange(path) {
 }
 
 function syncEditorToPreview() {
+  if (!activeFile) return;
   const editorScroll = document.getElementById('editorScroll');
   const pane = document.getElementById('previewPane');
   if (!editorScroll || !pane) return;
-  const editorMax = editorScroll.scrollHeight - editorScroll.clientHeight;
-  const ratio = editorMax > 0 ? editorScroll.scrollTop / editorMax : 0;
-  const previewMax = pane.scrollHeight - pane.clientHeight;
+
+  // Find the active file's section in the editor and its range in the preview
+  const section = document.querySelector('.file-section[data-path="' + activeFile + '"]');
+  const slug = activeFile.replace(/[\/\\.]/g, '-');
+  const anchor = document.getElementById('ch-' + slug);
+  if (!section || !anchor) return;
+
+  // How far through this file's editor section are we?
+  const sectionTop = section.offsetTop;
+  const sectionBot = sectionTop + section.offsetHeight;
+  const viewMid = editorScroll.scrollTop + editorScroll.clientHeight * 0.3;
+  const ratio = section.offsetHeight > 0
+    ? Math.max(0, Math.min(1, (viewMid - sectionTop) / section.offsetHeight))
+    : 0;
+
+  // Find the preview range for this file (anchor to next anchor)
+  const allAnchors = pane.querySelectorAll('.chapter-anchor');
+  let previewTop = anchor.offsetTop;
+  let previewBot = pane.scrollHeight;
+  let found = false;
+  for (const a of allAnchors) {
+    if (found) { previewBot = a.offsetTop; break; }
+    if (a === anchor) found = true;
+  }
+  const previewHeight = previewBot - previewTop;
+
+  // Map the ratio to the preview position
+  const target = previewTop + ratio * previewHeight - pane.clientHeight * 0.3;
   syncSource = 'editor';
-  pane.scrollTop = ratio * previewMax;
+  pane.scrollTop = Math.max(0, target);
   setTimeout(() => { syncSource = null; }, 50);
 }
 
 function syncPreviewToEditor() {
+  if (!activeFile) return;
   const editorScroll = document.getElementById('editorScroll');
   const pane = document.getElementById('previewPane');
   if (!editorScroll || !pane) return;
-  const previewMax = pane.scrollHeight - pane.clientHeight;
-  const ratio = previewMax > 0 ? pane.scrollTop / previewMax : 0;
-  const editorMax = editorScroll.scrollHeight - editorScroll.clientHeight;
+
+  const section = document.querySelector('.file-section[data-path="' + activeFile + '"]');
+  const slug = activeFile.replace(/[\/\\.]/g, '-');
+  const anchor = document.getElementById('ch-' + slug);
+  if (!section || !anchor) return;
+
+  // How far through this file's preview range are we?
+  const allAnchors = pane.querySelectorAll('.chapter-anchor');
+  let previewTop = anchor.offsetTop;
+  let previewBot = pane.scrollHeight;
+  let found = false;
+  for (const a of allAnchors) {
+    if (found) { previewBot = a.offsetTop; break; }
+    if (a === anchor) found = true;
+  }
+  const previewHeight = previewBot - previewTop;
+  const viewMid = pane.scrollTop + pane.clientHeight * 0.3;
+  const ratio = previewHeight > 0
+    ? Math.max(0, Math.min(1, (viewMid - previewTop) / previewHeight))
+    : 0;
+
+  // Map the ratio to the editor section
+  const target = section.offsetTop + ratio * section.offsetHeight - editorScroll.clientHeight * 0.3;
   syncSource = 'preview';
-  editorScroll.scrollTop = ratio * editorMax;
+  editorScroll.scrollTop = Math.max(0, target);
   setTimeout(() => { syncSource = null; }, 50);
 }
 
