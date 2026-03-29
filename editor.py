@@ -1002,37 +1002,26 @@ function getChapterRange(path) {
 }
 
 function syncEditorToPreview() {
-  if (!activeFile) return;
   const editorScroll = document.getElementById('editorScroll');
   const pane = document.getElementById('previewPane');
-  const section = document.querySelector('.file-section[data-path="' + activeFile + '"]');
-  const range = getChapterRange(activeFile);
-  if (!range || !section) return;
-  // Proportional: where is the editor section in the scroll?
-  const sectionTop = section.offsetTop;
-  const sectionHeight = section.offsetHeight;
-  const editorOffset = editorScroll.scrollTop - sectionTop;
-  const ratio = sectionHeight > 0 ? Math.max(0, Math.min(1, editorOffset / sectionHeight)) : 0;
-  const targetTop = range.top + ratio * Math.max(0, range.height - pane.clientHeight);
+  if (!editorScroll || !pane) return;
+  const editorMax = editorScroll.scrollHeight - editorScroll.clientHeight;
+  const ratio = editorMax > 0 ? editorScroll.scrollTop / editorMax : 0;
+  const previewMax = pane.scrollHeight - pane.clientHeight;
   syncSource = 'editor';
-  pane.scrollTop = targetTop;
+  pane.scrollTop = ratio * previewMax;
   setTimeout(() => { syncSource = null; }, 50);
 }
 
 function syncPreviewToEditor() {
-  const visible = getVisibleChapter();
-  if (!visible) return;
-  if (visible !== activeFile) { activeFile = visible; renderTree(); highlightActiveHeader(); }
-  const range = getChapterRange(activeFile);
-  if (!range) return;
-  const pane = document.getElementById('previewPane');
   const editorScroll = document.getElementById('editorScroll');
-  const section = document.querySelector('.file-section[data-path="' + activeFile + '"]');
-  if (!section) return;
-  const chScroll = Math.max(1, range.height - pane.clientHeight);
-  const ratio = Math.max(0, Math.min(1, (pane.scrollTop - range.top) / chScroll));
+  const pane = document.getElementById('previewPane');
+  if (!editorScroll || !pane) return;
+  const previewMax = pane.scrollHeight - pane.clientHeight;
+  const ratio = previewMax > 0 ? pane.scrollTop / previewMax : 0;
+  const editorMax = editorScroll.scrollHeight - editorScroll.clientHeight;
   syncSource = 'preview';
-  editorScroll.scrollTop = section.offsetTop + ratio * section.offsetHeight;
+  editorScroll.scrollTop = ratio * editorMax;
   setTimeout(() => { syncSource = null; }, 50);
 }
 
