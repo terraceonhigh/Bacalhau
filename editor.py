@@ -205,7 +205,9 @@ body { font-family: -apple-system, "Helvetica Neue", sans-serif; background: var
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column; overflow: hidden;
 }
-.sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
+.sidebar-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.sidebar-header img { width: 32px; height: 32px; border-radius: 4px; flex-shrink: 0; }
+.sidebar-header div { flex: 1; }
 .sidebar-header h1 { font-size: 16px; font-weight: 600; margin-bottom: 2px; }
 .sidebar-header p { font-size: 11px; color: var(--fg3); }
 .tree { list-style: none; overflow-y: auto; flex: 1; padding: 8px; }
@@ -351,8 +353,11 @@ button.primary:hover { opacity: 0.85; }
 
 <div class="sidebar">
   <div class="sidebar-header">
-    <h1>Bacalhau</h1>
-    <p>Click to edit. Drag to reorder.</p>
+    <img src="/favicon.png" alt="">
+    <div>
+      <h1>Bacalhau</h1>
+      <p>Click to edit. Drag to reorder.</p>
+    </div>
   </div>
   <div class="tree" id="tree"></div>
   <div class="sidebar-footer">
