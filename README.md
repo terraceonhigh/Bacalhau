@@ -52,11 +52,7 @@ Included in `portable/` for use without the native app:
 - **Python 3.6+**
 - **A web browser** — Chrome, Firefox, Safari, Edge, et cetera.
 
-### For PDF export
-
-Requires [Pandoc](https://pandoc.org/): `brew install pandoc`
-
-For better typesetting, install a LaTeX distribution (optional — Pandoc can produce basic PDFs without one).
+PDF export is built in — no external tools required.
 
 ## Project structure
 
@@ -70,9 +66,6 @@ my-novel/
       _part.md            # section heading (## Part One)
       chapter-one.md
       chapter-two.md
-  latex/                   # optional — Pandoc templates
-    template.tex
-    metadata.yaml
 ```
 
 ### `_order.yaml`
@@ -98,14 +91,13 @@ Optional heading file inside a directory. Rendered before the directory's other 
 - **Save .bacalhau** — portable project file (ZIP with custom extension, bundles `chapters/` and `latex/`)
 - **Save .zip** — raw `chapters/` directory as a zip
 - **Save .md** — assembled manuscript with scene numbers
-- **Save .pdf** — via Pandoc + XeLaTeX
+- **Save .pdf** — pure Python, no external tools
 
 ### From the command line
 
 ```bash
 python3 assemble.py chapters/ --concat -o manuscript.md
-python3 assemble.py chapters/ --latex  -o manuscript.tex --templates latex/
-python3 assemble.py chapters/ --pdf    -o manuscript.pdf --templates latex/
+python3 assemble.py chapters/ --pdf    -o manuscript.pdf
 ```
 
 ### Opening .bacalhau files
@@ -132,7 +124,8 @@ Themes override CSS custom properties (`--bg`, `--accent`, etc.). See `DESIGN.md
 | Path | Description |
 |------|-------------|
 | `editor.py` | The editor — HTTP server, browser UI, all file APIs |
-| `assemble.py` | CLI tool — concatenates chapters into markdown/LaTeX/PDF |
+| `assemble.py` | CLI tool — concatenates chapters into markdown/PDF |
+| `vendor/` | Vendored pure-Python libs (pdfme, mistletoe) for PDF export |
 | `themes/` | Bundled CSS themes |
 | `icons/` | Icon assets and generator script |
 | `portable/` | Portable launchers for use without native packaging |

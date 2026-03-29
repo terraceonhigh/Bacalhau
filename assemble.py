@@ -6,13 +6,10 @@ Part of Bacalhau. Concatenates a hierarchical markdown directory into a single f
 
 Usage:
     python3 assemble.py <project-dir> --concat     # output assembled markdown
-    python3 assemble.py <project-dir> --latex       # generate .tex via Pandoc
-    python3 assemble.py <project-dir> --pdf         # generate .pdf via Pandoc
+    python3 assemble.py <project-dir> --pdf         # generate .pdf (pure Python)
 """
 
 import os
-import shutil
-import subprocess
 import sys
 
 # Set by main()
@@ -120,44 +117,14 @@ def cmd_concat(output):
     print(f"Assembled {len(files)} files → {output}")
 
 
-def cmd_latex(output, template_dir=None):
-    """Generate .tex via Pandoc."""
-    if not shutil.which("pandoc"):
-        print("Error: pandoc not found. Install: brew install pandoc", file=sys.stderr)
-        sys.exit(1)
+def cmd_pdf(output):
+    """Generate .pdf (pure Python, no external deps)."""
+    vendor_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor")
+    if vendor_dir not in sys.path:
+        sys.path.insert(0, vendor_dir)
+    from md2pdf import markdown_to_pdf
     text = concatenate()
-    cmd = ["pandoc", "--from", "markdown", "--to", "latex", "-o", output]
-    if template_dir:
-        t = os.path.join(template_dir, "template.tex")
-        m = os.path.join(template_dir, "metadata.yaml")
-        if os.path.exists(t): cmd += ["--template", t]
-        if os.path.exists(m): cmd += ["--metadata-file", m]
-    proc = subprocess.run(cmd, input=text, capture_output=True, text=True)
-    if proc.returncode != 0:
-        print(f"Pandoc error: {proc.stderr}", file=sys.stderr)
-        sys.exit(1)
-    print(f"Generated {output}")
-
-
-def cmd_pdf(output, template_dir=None):
-    """Generate .pdf via Pandoc + XeLaTeX."""
-    if not shutil.which("pandoc"):
-        print("Error: pandoc not found. Install: brew install pandoc", file=sys.stderr)
-        sys.exit(1)
-    if not shutil.which("xelatex"):
-        print("Error: xelatex not found. Install: brew install --cask basictex && sudo tlmgr install xetex", file=sys.stderr)
-        sys.exit(1)
-    text = concatenate()
-    cmd = ["pandoc", "--from", "markdown", "--to", "pdf", "--pdf-engine=xelatex", "-o", output]
-    if template_dir:
-        t = os.path.join(template_dir, "template.tex")
-        m = os.path.join(template_dir, "metadata.yaml")
-        if os.path.exists(t): cmd += ["--template", t]
-        if os.path.exists(m): cmd += ["--metadata-file", m]
-    proc = subprocess.run(cmd, input=text, capture_output=True, text=True)
-    if proc.returncode != 0:
-        print(f"Pandoc error: {proc.stderr}", file=sys.stderr)
-        sys.exit(1)
+    markdown_to_pdf(text, output)
     print(f"Generated {output}")
 
 
@@ -168,29 +135,24 @@ if __name__ == "__main__":
     project_dir = None
     action = None
     output = None
-    template_dir = None
 
     i = 0
     while i < len(args):
-        if args[i] in ("--concat", "--latex", "--pdf"):
+        if args[i] in ("--concat", "--pdf"):
             action = args[i][2:]
         elif args[i] == "-o" and i + 1 < len(args):
             output = args[i + 1]; i += 1
-        elif args[i] == "--templates" and i + 1 < len(args):
-            template_dir = args[i + 1]; i += 1
         elif not args[i].startswith("-"):
             project_dir = args[i]
         i += 1
 
     if not project_dir or not action:
-        print("Usage: python3 assemble.py <project-dir> --concat|-latex|--pdf [-o output] [--templates dir]")
+        print("Usage: python3 assemble.py <project-dir> --concat|--pdf [-o output]")
         sys.exit(1)
 
     CHAPTERS_DIR = os.path.abspath(project_dir)
 
     if action == "concat":
         cmd_concat(output or "manuscript.md")
-    elif action == "latex":
-        cmd_latex(output or "manuscript.tex", template_dir)
     elif action == "pdf":
-        cmd_pdf(output or "manuscript.pdf", template_dir)
+        cmd_pdf(output or "manuscript.pdf")

@@ -753,6 +753,7 @@ async function buildEditor() {
       if (ind) { ind.textContent = '\\u25CF'; ind.className = 'save-indicator unsaved'; }
       clearTimeout(fileSaveTimers[f.path]);
       fileSaveTimers[f.path] = setTimeout(() => saveFileByPath(f.path), 1000);
+      schedulePreviewUpdate();
     });
     ta.addEventListener('focus', () => {
       activeFile = f.path;
@@ -860,6 +861,41 @@ function findNode(nodes, path) {
 }
 
 // ── Preview ──────────────────────────────────────────────────────────────────
+let previewRafPending = false;
+
+function renderPreviewLocal() {
+  // Render preview directly from textarea content (no server round-trip)
+  const container = document.getElementById('preview');
+  const sections = document.querySelectorAll('.file-section');
+  let html = '';
+  let sceneNum = 0;
+  for (const section of sections) {
+    const path = section.dataset.path;
+    const ta = section.querySelector('textarea');
+    if (!ta) continue;
+    const slug = path.replace(/[\/\\.]/g, '-');
+    html += '<span class="chapter-anchor" id="ch-'+esc(slug)+'"></span>';
+    const fname = path.split('/').pop();
+    const isScene = fname !== '_part.md' && !fname.startsWith('intermezzo-') && fname !== 'title.md';
+    let content = ta.value;
+    if (isScene) {
+      sceneNum++;
+      content = content.replace(/^(### )(.+)$/m, '$1' + sceneNum + '. $2');
+    }
+    html += md(content);
+  }
+  container.innerHTML = html;
+}
+
+function schedulePreviewUpdate() {
+  if (previewRafPending) return;
+  previewRafPending = true;
+  requestAnimationFrame(() => {
+    renderPreviewLocal();
+    previewRafPending = false;
+  });
+}
+
 async function renderPreview() {
   const data = await api('/api/preview');
   const container = document.getElementById('preview');
@@ -1815,13 +1851,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def export_pdf(self):
-        """Generate PDF via Pandoc + XeLaTeX and serve as a download."""
-        import shutil as _shutil
-        import subprocess as _sub
-        import tempfile
-        if not _shutil.which("pandoc"):
-            self.send_json(500, {"error": "pandoc not found. Install: brew install pandoc"})
-            return
+        """Generate PDF from assembled markdown (pure Python, no external deps)."""
         # Assemble markdown with scene numbers
         parts = []
         counter = [0]
@@ -1835,25 +1865,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 content = re.sub(r"^(### )(.+)$", rf"\g<1>{n}. \2", content, count=1, flags=re.MULTILINE)
             parts.append(content)
         text = "".join(parts)
-        # Build pandoc command — use LaTeX engine if available, otherwise Pandoc's built-in
-        cmd = ["pandoc", "--from", "markdown"]
-        if _shutil.which("xelatex"):
-            cmd += ["--pdf-engine=xelatex"]
-        elif _shutil.which("pdflatex"):
-            cmd += ["--pdf-engine=pdflatex"]
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp_path = tmp.name
         try:
-            cmd += ["-o", tmp_path]
-            proc = _sub.run(cmd, input=text, capture_output=True, text=True)
-            if proc.returncode != 0:
-                self.send_json(500, {"error": f"Pandoc failed: {proc.stderr[:500]}"})
-                return
-            with open(tmp_path, "rb") as f:
-                data = f.read()
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+            vendor_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor")
+            if vendor_dir not in sys.path:
+                sys.path.insert(0, vendor_dir)
+            from md2pdf import markdown_to_pdf_bytes
+            data = markdown_to_pdf_bytes(text)
+        except Exception as e:
+            self.send_json(500, {"error": f"PDF generation failed: {str(e)[:500]}"})
+            return
         self.send_response(200)
         self.send_header("Content-Type", "application/pdf")
         self.send_header("Content-Disposition", 'attachment; filename="bone-china.pdf"')
