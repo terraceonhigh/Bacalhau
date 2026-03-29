@@ -1742,7 +1742,29 @@ loadTree();
 loadThemes();
 
 // Heartbeat — tells server we're alive
-setInterval(() => fetch('/api/heartbeat').catch(()=>{}), 5000);
+let serverDead = false;
+setInterval(() => {
+  fetch('/api/heartbeat').then(r => {
+    if (serverDead) {
+      serverDead = false;
+      const s = document.getElementById('status');
+      s.textContent = 'Reconnected';
+      s.style.color = '';
+      s.style.fontWeight = '';
+      setTimeout(() => { if (s.textContent === 'Reconnected') s.textContent = ''; }, 3000);
+    }
+  }).catch(() => {
+    serverDead = true;
+    const s = document.getElementById('status');
+    s.textContent = 'Server disconnected';
+    s.style.color = '#e55';
+    s.style.fontWeight = '700';
+  });
+}, 10000);
+// Re-ping immediately when tab becomes visible (recovers from App Nap / background throttling)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) fetch('/api/heartbeat').catch(()=>{});
+});
 // Beacon on close — immediate shutdown signal
 window.addEventListener('beforeunload', () => {
   navigator.sendBeacon('/api/shutdown');
@@ -2784,9 +2806,9 @@ def main():
     def _heartbeat_watchdog():
         time.sleep(30)  # Grace period for browser to connect
         while True:
-            time.sleep(10)
-            if time.time() - _last_heartbeat > 20:
-                print("\nNo heartbeat — shutting down.", file=sys.stderr)
+            time.sleep(15)
+            if time.time() - _last_heartbeat > 120:
+                print("\nNo heartbeat for 2 minutes — shutting down.", file=sys.stderr)
                 _repack_bacalhau()
                 os._exit(0)
     threading.Thread(target=_heartbeat_watchdog, daemon=True).start()
