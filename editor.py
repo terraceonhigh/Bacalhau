@@ -307,9 +307,12 @@ body { font-family: -apple-system, "Helvetica Neue", sans-serif; background: var
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column; overflow: hidden;
 }
-.sidebar-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
-.sidebar-header img { width: 32px; height: 32px; border-radius: 4px; flex-shrink: 0; }
-.sidebar-header div { flex: 1; }
+.sidebar-header { padding: 12px 16px; border-bottom: 1px solid var(--border); position: relative; overflow: hidden; }
+#tilingCanvas { position: absolute; top: 0; left: 0; pointer-events: none; opacity: 0.3; }
+.sidebar-header-content { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; }
+.sidebar-header-content { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; }
+.sidebar-header-content img { width: 32px; height: 32px; border-radius: 4px; flex-shrink: 0; }
+.sidebar-header-content div { flex: 1; }
 .sidebar-header h1 { font-size: 16px; font-weight: 600; margin-bottom: 2px; }
 .sidebar-header p { font-size: 11px; color: var(--fg3); }
 .tree { list-style: none; overflow-y: auto; flex: 1; padding: 8px; }
@@ -600,10 +603,13 @@ button.primary:hover { opacity: 0.85; }
 
 <div class="sidebar">
   <div class="sidebar-header">
-    <img src="/favicon.png" alt="">
-    <div>
-      <h1>Bacalhau</h1>
-      <p>Click to edit. Drag to reorder.</p>
+    <canvas id="tilingCanvas"></canvas>
+    <div class="sidebar-header-content">
+      <img src="/favicon.png" alt="">
+      <div>
+        <h1>Bacalhau</h1>
+        <p>Click to edit. Drag to reorder.</p>
+      </div>
     </div>
   </div>
   <div class="sidebar-tabs">
@@ -696,6 +702,103 @@ let gitLog = [];
 async function api(path, opts) {
   const r = await fetch(path, opts);
   return r.json();
+}
+
+// ── Aperiodic tiling (de Bruijn multigrid) ───────────────────────────────────
+function renderTiling() {
+  const canvas = document.getElementById('tilingCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const parent = canvas.parentElement;
+  const cw = parent.offsetWidth;
+  const ch = parent.offsetHeight;
+  if (cw === 0 || ch === 0) return;
+  canvas.width = cw * dpr;
+  canvas.height = ch * dpr;
+  canvas.style.width = cw + 'px';
+  canvas.style.height = ch + 'px';
+  const W = canvas.width;
+  const H = canvas.height;
+
+  const N = 5;
+  // Offsets must not sum to integer for proper aperiodic tiling
+  const offsets = Array.from({length: N}, () => Math.random());
+  const gridSize = 20;
+  const scale = W / 25;
+  const angles = Array.from({length: N}, (_, i) => i * Math.PI / N);
+  const cosA = angles.map(a => Math.cos(a));
+  const sinA = angles.map(a => Math.sin(a));
+  const globalRotation = Math.random() * Math.PI * 2;
+
+  // De Bruijn dual: for each intersection, compute dual vertices using ALL families
+  function dualVertex(ks) {
+    let x = 0, y = 0;
+    for (let m = 0; m < N; m++) { x += ks[m] * cosA[m]; y += ks[m] * sinA[m]; }
+    return [x, y];
+  }
+
+  const tiles = [];
+  const seen = new Set();
+  for (let i = 0; i < N; i++) {
+    for (let j = i + 1; j < N; j++) {
+      const det = cosA[i] * sinA[j] - cosA[j] * sinA[i];
+      if (Math.abs(det) < 1e-10) continue;
+      for (let ki = -gridSize; ki <= gridSize; ki++) {
+        for (let kj = -gridSize; kj <= gridSize; kj++) {
+          const oi = ki + offsets[i], oj = kj + offsets[j];
+          const x = (oi * sinA[j] - oj * sinA[i]) / det;
+          const y = (oj * cosA[i] - oi * cosA[j]) / det;
+          // Compute k index for each family at this intersection
+          const ks = [];
+          for (let m = 0; m < N; m++) {
+            ks[m] = Math.floor(x * cosA[m] + y * sinA[m] + offsets[m]);
+          }
+          // Exact values for the intersecting families
+          ks[i] = ki; ks[j] = kj;
+          // Deduplicate tiles by their k-vector
+          const key = ks.join(',');
+          if (seen.has(key)) continue;
+          seen.add(key);
+          // Build rhombus: 4 dual vertices by toggling k_i and k_j
+          const v00 = dualVertex(ks);
+          ks[i]++; const v10 = dualVertex(ks);
+          ks[j]++; const v11 = dualVertex(ks);
+          ks[i]--; const v01 = dualVertex(ks);
+          ks[j]--; // restore
+          tiles.push([v00, v10, v11, v01]);
+        }
+      }
+    }
+  }
+
+  const style = getComputedStyle(document.documentElement);
+  const accent = style.getPropertyValue('--accent').trim() || '#5b9bd5';
+  const bg2 = style.getPropertyValue('--bg2').trim() || '#1a1a1a';
+  const border = style.getPropertyValue('--border').trim() || '#333';
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(globalRotation);
+  ctx.scale(scale, scale);
+
+  for (const tile of tiles) {
+    const area = Math.abs(
+      (tile[1][0] - tile[0][0]) * (tile[2][1] - tile[0][1]) -
+      (tile[2][0] - tile[0][0]) * (tile[1][1] - tile[0][1])
+    );
+    ctx.fillStyle = area > 0.6 ? accent : bg2;
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 0.03;
+    ctx.beginPath();
+    ctx.moveTo(tile[0][0], tile[0][1]);
+    for (let k = 1; k < 4; k++) ctx.lineTo(tile[k][0], tile[k][1]);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ── Markdown parser ──────────────────────────────────────────────────────────
@@ -1990,10 +2093,17 @@ async function handleImportTheme(input) {
 function applyTheme(name) {
   const link = document.getElementById('theme-css');
   link.href = name ? '/api/themes/' + encodeURIComponent(name) : '';
+  // Re-render tiling with new theme colours after stylesheet loads
+  if (name) {
+    link.onload = () => renderTiling();
+  } else {
+    setTimeout(renderTiling, 50);
+  }
 }
 
 loadTree();
 loadThemes();
+setTimeout(renderTiling, 500);
 
 // Heartbeat — tells server we're alive
 let serverDead = false;
