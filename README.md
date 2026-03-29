@@ -15,8 +15,9 @@ A browser-based markdown manuscript editor for long-form writing projects. One P
 Three-pane layout for editing hierarchical markdown:
 
 - **Sidebar:** File tree with drag-and-drop reordering, inline rename, collapse/expand
-- **Editor:** Continuous scroll with per-file auto-save
+- **Editor:** Continuous scroll with per-file auto-save and live preview
 - **Preview:** Full manuscript with auto-numbered scene headings and scroll sync
+- **Git panel:** Stage, unstage, commit, and restore from history — no terminal required
 
 Projects are stored as plain markdown files on disk, organized in directories with `_order.yaml` for ordering.
 
@@ -127,6 +128,7 @@ Themes override CSS custom properties (`--bg`, `--accent`, etc.). See `DESIGN.md
 | `assemble.py` | CLI tool — concatenates chapters into markdown/PDF |
 | `vendor/` | Vendored pure-Python libs (pdfme, mistletoe) for PDF export |
 | `themes/` | Bundled CSS themes |
+| `demo/` | Sample project — *The Salted Page* |
 | `icons/` | Icon assets and generator script |
 | `portable/` | Portable launchers for use without native packaging |
 | `packaging/` | Platform-specific launcher scripts and Info.plist template |
@@ -147,6 +149,29 @@ Only needed for producing native packages.
 ```bash
 ./build.sh v1.0.0
 ./release.sh v1.0.0
+```
+
+## Version control
+
+The Git tab in the sidebar provides built-in version control:
+
+- **Status:** See which files have changed (M/A/D/? badges)
+- **Stage/Unstage:** Per-file or all-at-once, with `+` and `−` buttons
+- **Commit:** Enter a message and checkpoint your work
+- **History:** A stack of past commits with one-click **Restore** to roll back to any version
+
+Restore is non-destructive — it auto-saves your current state before reverting, so every version is always recoverable. No git knowledge required.
+
+If no repository exists, the panel offers an "Initialize Repository" button. Projects opened from `.bacalhau` files (temporary extraction) don't show git controls.
+
+Requires `git` to be installed on the system. The panel degrades gracefully if it's not available.
+
+## Demo project
+
+A sample novella, *The Salted Page*, is included in `demo/chapters/` with two parts (Past and Present) to demonstrate the editor's hierarchical structure:
+
+```bash
+python3 editor.py demo/chapters
 ```
 
 ## Known limitations
