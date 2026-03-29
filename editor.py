@@ -324,7 +324,7 @@ button.primary:hover { opacity: 0.85; }
 /* ── Sync Bar ── */
 .sync-bar {
   width: 32px; min-width: 32px; background: var(--bg2);
-  border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+  border-left: 1px solid var(--accent); border-right: 1px solid var(--accent);
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 8px;
 }
