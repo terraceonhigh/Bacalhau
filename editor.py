@@ -259,20 +259,32 @@ button.primary:hover { opacity: 0.85; }
 .editor-pane {
   flex: 1; display: flex; flex-direction: column;
   border-right: 1px solid var(--border); min-width: 0;
+  overflow: hidden;
 }
-.editor-header {
-  padding: 8px 16px; border-bottom: 1px solid var(--border);
-  font-size: 12px; color: var(--fg2); background: var(--bg2);
+.editor-scroll {
+  flex: 1; overflow-y: auto; background: var(--bg);
+}
+.file-section { position: relative; }
+.file-header {
+  position: sticky; top: 0; z-index: 2;
+  padding: 4px 16px; background: var(--bg2);
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  font-size: 11px; color: var(--fg3); font-family: monospace;
   display: flex; justify-content: space-between; align-items: center;
+  cursor: pointer;
 }
-.editor-header .filename { font-family: monospace; }
-.editor-header .save-status { font-size: 11px; color: var(--fg3); }
-textarea#editor {
-  flex: 1; width: 100%; resize: none; border: none; outline: none;
+.file-header:hover { color: var(--fg2); }
+.file-header.active { color: var(--accent); border-left: 2px solid var(--accent); }
+.file-header .save-indicator { font-size: 10px; }
+.file-header .save-indicator.unsaved { color: var(--accent); }
+.file-section textarea {
+  width: 100%; resize: none; border: none; outline: none;
   background: var(--bg); color: var(--fg);
   font-family: Charter, Georgia, serif; font-size: 17px; line-height: 1.7;
-  padding: 24px 32px; tab-size: 4;
+  padding: 16px 32px; tab-size: 4;
+  overflow: hidden; min-height: 3em;
 }
+.file-section textarea:read-only { opacity: 0.6; font-style: italic; }
 
 /* ── Insert Zones ── */
 .insert-zone {
@@ -355,12 +367,8 @@ textarea#editor {
   </div>
 </div>
 
-<div class="editor-pane">
-  <div class="editor-header">
-    <span class="filename" id="editorFilename">No chapter selected</span>
-    <span class="save-status" id="saveStatus"></span>
-  </div>
-  <textarea id="editor" placeholder="Select a chapter from the sidebar..." disabled></textarea>
+<div class="editor-pane" id="editorPane">
+  <div class="editor-scroll" id="editorScroll"></div>
 </div>
 
 <div class="sync-bar">
@@ -378,8 +386,8 @@ textarea#editor {
 <script>
 let tree = [];
 let activeFile = null;
-let dirty = false;
-let saveTimer = null;
+let dirty = false;  // legacy — per-file flags in fileDirtyFlags
+let saveTimer = null;  // legacy — per-file timers in fileSaveTimers
 let collapsed = JSON.parse(localStorage.getItem('bc-collapsed') || '{}');
 let dragItem = null;
 
@@ -414,6 +422,7 @@ async function loadTree() {
   const data = await api('/api/tree');
   tree = data.tree;
   renderTree();
+  await buildEditor();
   renderPreview();
 }
 
@@ -622,53 +631,142 @@ async function onDrop(targetDir, position) {
   await loadTree();
 }
 
-// ── Editor ───────────────────────────────────────────────────────────────────
-let selectGuard = false;  // suppress scroll-sync after explicit selection
+// ── Editor (continuous scroll) ───────────────────────────────────────────────
+let selectGuard = false;
+let fileSaveTimers = {};  // per-file debounce timers
+let fileDirtyFlags = {};  // per-file dirty state
+
+async function buildEditor() {
+  const data = await api('/api/preview');
+  const container = document.getElementById('editorScroll');
+  container.innerHTML = '';
+  fileSaveTimers = {};
+  fileDirtyFlags = {};
+
+  for (const f of data.files) {
+    const section = document.createElement('div');
+    section.className = 'file-section';
+    section.dataset.path = f.path;
+
+    // Header bar
+    const header = document.createElement('div');
+    header.className = 'file-header' + (activeFile === f.path ? ' active' : '');
+    header.dataset.path = f.path;
+    const fname = f.path.split('/').pop();
+    const node = findNode(tree, f.path);
+    const writable = node ? node.writable : true;
+    header.innerHTML = '<span>' + esc(fname) + (writable ? '' : ' (read-only)') + '</span><span class="save-indicator" id="save-' + esc(f.path.replace(/[\\/\\.]/g, '-')) + '"></span>';
+    header.addEventListener('click', () => {
+      activeFile = f.path;
+      renderTree();
+      highlightActiveHeader();
+    });
+    section.appendChild(header);
+
+    // Textarea
+    const ta = document.createElement('textarea');
+    ta.value = f.content;
+    ta.readOnly = !writable;
+    ta.spellcheck = true;
+    ta.dataset.path = f.path;
+
+    // Auto-resize
+    function autoResize() {
+      ta.style.height = 'auto';
+      ta.style.height = ta.scrollHeight + 'px';
+    }
+    ta.addEventListener('input', () => {
+      autoResize();
+      fileDirtyFlags[f.path] = true;
+      const ind = document.getElementById('save-' + f.path.replace(/[\\/\\.]/g, '-'));
+      if (ind) { ind.textContent = '\\u25CF'; ind.className = 'save-indicator unsaved'; }
+      clearTimeout(fileSaveTimers[f.path]);
+      fileSaveTimers[f.path] = setTimeout(() => saveFileByPath(f.path), 1000);
+    });
+    ta.addEventListener('focus', () => {
+      activeFile = f.path;
+      renderTree();
+      highlightActiveHeader();
+    });
+    section.appendChild(ta);
+    container.appendChild(section);
+
+    // Initial auto-resize after appending to DOM
+    requestAnimationFrame(autoResize);
+  }
+}
+
+function highlightActiveHeader() {
+  document.querySelectorAll('.file-header').forEach(h => {
+    h.classList.toggle('active', h.dataset.path === activeFile);
+  });
+}
 
 async function selectFile(path) {
   selectGuard = true;
   setTimeout(() => { selectGuard = false; }, 800);
-  if (dirty && activeFile) await saveFile();
   activeFile = path;
-  const ta = document.getElementById('editor');
-  const data = await api('/api/chapter/' + encodeURI(path));
-  ta.value = data.content;
-  const node = findNode(tree, path);
-  const writable = node ? node.writable : true;
-  ta.disabled = !writable;
-  if (writable) ta.focus();
-  document.getElementById('editorFilename').textContent = path + (writable ? '' : ' (read-only)');
-  document.getElementById('saveStatus').textContent = writable ? '' : 'read-only';
-  dirty = false;
   renderTree();
+  highlightActiveHeader();
+  // Scroll editor to this file's section
+  const section = document.querySelector('.file-section[data-path="' + path + '"]');
+  if (section) section.scrollIntoView({behavior:'smooth', block:'start'});
   // Scroll preview
   const slug = path.replace(/[\/\\.]/g, '-');
   const anchor = document.getElementById('ch-' + slug);
   if (anchor) anchor.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
-document.getElementById('editor').addEventListener('input', () => {
-  dirty = true;
-  document.getElementById('saveStatus').textContent = 'unsaved';
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveFile, 1000);
-});
-
-async function saveFile() {
-  if (!activeFile || !dirty) return;
-  const content = document.getElementById('editor').value;
-  document.getElementById('saveStatus').textContent = 'saving...';
-  const data = await api('/api/chapter/' + encodeURI(activeFile), {
+async function saveFileByPath(path) {
+  if (!fileDirtyFlags[path]) return;
+  const ta = document.querySelector('textarea[data-path="' + path + '"]');
+  if (!ta) return;
+  const content = ta.value;
+  const ind = document.getElementById('save-' + path.replace(/[\\/\\.]/g, '-'));
+  if (ind) { ind.textContent = 'saving...'; ind.className = 'save-indicator'; }
+  const data = await api('/api/chapter/' + encodeURI(path), {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({content})
   });
-  if (data.error) { document.getElementById('saveStatus').textContent = data.error; return; }
-  dirty = false;
-  document.getElementById('saveStatus').textContent = 'saved';
-  setTimeout(() => { if (!dirty) document.getElementById('saveStatus').textContent = ''; }, 2000);
+  if (data.error) { if (ind) ind.textContent = data.error; return; }
+  fileDirtyFlags[path] = false;
+  if (ind) { ind.textContent = 'saved'; ind.className = 'save-indicator'; }
+  setTimeout(() => { if (!fileDirtyFlags[path] && ind) ind.textContent = ''; }, 2000);
   renderPreview();
 }
+
+async function saveFile() {
+  // Save all dirty files
+  for (const path of Object.keys(fileDirtyFlags)) {
+    if (fileDirtyFlags[path]) await saveFileByPath(path);
+  }
+}
+
+// Track which file is visible in the editor scroll
+document.addEventListener('DOMContentLoaded', () => {
+  const editorScroll = document.getElementById('editorScroll');
+  if (!editorScroll) return;
+  let editorTrackTimer = null;
+  editorScroll.addEventListener('scroll', () => {
+    if (selectGuard) return;
+    clearTimeout(editorTrackTimer);
+    editorTrackTimer = setTimeout(() => {
+      const rect = editorScroll.getBoundingClientRect();
+      const midY = rect.top + rect.height * 0.3;
+      let best = null, bestDist = Infinity;
+      document.querySelectorAll('.file-section').forEach(s => {
+        const d = Math.abs(s.getBoundingClientRect().top - midY);
+        if (d < bestDist) { bestDist = d; best = s.dataset.path; }
+      });
+      if (best && best !== activeFile) {
+        activeFile = best;
+        renderTree();
+        highlightActiveHeader();
+      }
+    }, 150);
+  });
+});
 
 function findNode(nodes, path) {
   for (const n of nodes) {
@@ -791,7 +889,6 @@ async function renameItem(path, newName, type) {
   // Update activeFile if it was renamed
   if (activeFile === path && data.newPath) {
     activeFile = data.newPath;
-    document.getElementById('editorFilename').textContent = activeFile;
   }
   await loadTree();
 }
@@ -809,7 +906,7 @@ async function removeFile(path) {
   const data = await api('/api/chapter/' + encodeURI(path), {method:'DELETE'});
   if (data.error) { setStatus(data.error); return; }
   setStatus(data.message);
-  if (activeFile === path) { activeFile=null; document.getElementById('editor').value=''; document.getElementById('editor').disabled=true; }
+  if (activeFile === path) { activeFile = null; }
   await loadTree();
 }
 
@@ -834,10 +931,6 @@ async function toggleLock(path) {
   if (data.error) { setStatus(data.error); return; }
   setStatus(data.message);
   await loadTree();
-  if (activeFile === path) {
-    document.getElementById('editor').disabled = !data.writable;
-    document.getElementById('saveStatus').textContent = data.writable ? '' : 'read-only';
-  }
 }
 
 async function saveProject() {
@@ -890,12 +983,16 @@ function getChapterRange(path) {
 
 function syncEditorToPreview() {
   if (!activeFile) return;
-  const ta = document.getElementById('editor');
+  const editorScroll = document.getElementById('editorScroll');
   const pane = document.getElementById('previewPane');
+  const section = document.querySelector('.file-section[data-path="' + activeFile + '"]');
   const range = getChapterRange(activeFile);
-  if (!range) return;
-  const editorMax = ta.scrollHeight - ta.clientHeight;
-  const ratio = editorMax > 0 ? ta.scrollTop / editorMax : 0;
+  if (!range || !section) return;
+  // Proportional: where is the editor section in the scroll?
+  const sectionTop = section.offsetTop;
+  const sectionHeight = section.offsetHeight;
+  const editorOffset = editorScroll.scrollTop - sectionTop;
+  const ratio = sectionHeight > 0 ? Math.max(0, Math.min(1, editorOffset / sectionHeight)) : 0;
   const targetTop = range.top + ratio * Math.max(0, range.height - pane.clientHeight);
   syncSource = 'editor';
   pane.scrollTop = targetTop;
@@ -905,15 +1002,17 @@ function syncEditorToPreview() {
 function syncPreviewToEditor() {
   const visible = getVisibleChapter();
   if (!visible) return;
-  if (visible !== activeFile && !dirty) { selectFile(visible); return; }
+  if (visible !== activeFile) { activeFile = visible; renderTree(); highlightActiveHeader(); }
   const range = getChapterRange(activeFile);
   if (!range) return;
   const pane = document.getElementById('previewPane');
-  const ta = document.getElementById('editor');
+  const editorScroll = document.getElementById('editorScroll');
+  const section = document.querySelector('.file-section[data-path="' + activeFile + '"]');
+  if (!section) return;
   const chScroll = Math.max(1, range.height - pane.clientHeight);
   const ratio = Math.max(0, Math.min(1, (pane.scrollTop - range.top) / chScroll));
   syncSource = 'preview';
-  ta.scrollTop = ratio * (ta.scrollHeight - ta.clientHeight);
+  editorScroll.scrollTop = section.offsetTop + ratio * section.offsetHeight;
   setTimeout(() => { syncSource = null; }, 50);
 }
 
@@ -949,8 +1048,12 @@ function toggleSync() {
   if (syncLinked) syncEditorToPreview();
 }
 
-document.getElementById('editor').addEventListener('scroll', () => {
-  if (syncLinked && syncSource !== 'preview') syncEditorToPreview();
+// Editor scroll sync — attached after DOM ready
+document.addEventListener('DOMContentLoaded', () => {
+  const es = document.getElementById('editorScroll');
+  if (es) es.addEventListener('scroll', () => {
+    if (syncLinked && syncSource !== 'preview') syncEditorToPreview();
+  });
 });
 
 let previewScrollTimer = null;
@@ -960,7 +1063,7 @@ document.getElementById('previewPane').addEventListener('scroll', () => {
   previewScrollTimer = setTimeout(() => {
     if (selectGuard) return;
     const visible = getVisibleChapter();
-    if (visible && visible !== activeFile && !dirty) selectFile(visible);
+    if (visible && visible !== activeFile) selectFile(visible);
     syncPreviewToEditor();
   }, 100);
 });
