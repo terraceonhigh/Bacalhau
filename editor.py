@@ -26,11 +26,15 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 import urllib.parse
 
 # Set by main() from command-line argument
 CHAPTERS_DIR = None
+BACALHAU_FILE = None   # Path to .bacalhau file when opened from one
+TEMP_DIR = None        # Temp extraction dir (cleaned up on exit)
+_last_heartbeat = time.time()
 
 
 # ── Filesystem helpers ────────────────────────────────────────────────────────
@@ -143,18 +147,47 @@ def get_heading(filepath):
     return None
 
 
-def get_themes_dir():
-    """Return the themes/ directory next to chapters/. Create if absent."""
-    themes = os.path.join(os.path.dirname(CHAPTERS_DIR), "themes")
-    if not os.path.isdir(themes):
-        os.makedirs(themes, exist_ok=True)
-    return themes
+def _bundled_themes_dir():
+    """Return the themes/ directory bundled with the app."""
+    # Check next to editor.py (repo or app bundle Resources/)
+    d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "themes")
+    return d if os.path.isdir(d) else None
+
+
+def _user_themes_dir():
+    """Return the platform-appropriate user themes directory. Create if absent."""
+    if sys.platform == "darwin":
+        base = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "Bacalhau")
+    else:
+        xdg = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share"))
+        base = os.path.join(xdg, "Bacalhau")
+    d = os.path.join(base, "themes")
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
 def list_themes():
-    """List available .css theme files."""
-    themes_dir = get_themes_dir()
-    return sorted(f for f in os.listdir(themes_dir) if f.endswith(".css"))
+    """List available .css theme files from bundled + user dirs."""
+    seen = set()
+    themes = []
+    # User themes take priority (listed first so they override bundled)
+    for d in (_user_themes_dir(), _bundled_themes_dir()):
+        if d and os.path.isdir(d):
+            for f in sorted(os.listdir(d)):
+                if f.endswith(".css") and f not in seen:
+                    seen.add(f)
+                    themes.append(f)
+    return sorted(themes)
+
+
+def find_theme(name):
+    """Find a theme CSS file by name, checking user dir first, then bundled."""
+    for d in (_user_themes_dir(), _bundled_themes_dir()):
+        if d:
+            path = os.path.join(d, name)
+            if os.path.isfile(path):
+                return path
+    return None
 
 
 def walk_files(directory):
@@ -264,6 +297,26 @@ button {
 button:hover { background: var(--bg4); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover { opacity: 0.85; }
+.export-wrap { position: relative; }
+.export-menu {
+  display: none; position: absolute; bottom: 100%; left: 0; right: 0;
+  margin-bottom: 4px; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 3px; overflow: hidden; z-index: 50;
+}
+.export-menu.open { display: block; }
+.export-menu button {
+  border: none; border-radius: 0; text-align: left;
+  background: var(--bg3); width: 100%; padding: 7px 14px; font-size: 12px;
+}
+.export-menu button:hover { background: var(--bg4); }
+.export-menu button + button { border-top: 1px solid var(--border); }
+
+.welcome-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+}
+.welcome-card { text-align: center; }
 
 /* ── Editor ── */
 .editor-pane {
@@ -370,19 +423,38 @@ button.primary:hover { opacity: 0.85; }
   </div>
   <div class="tree" id="tree"></div>
   <div class="sidebar-footer">
+    <input type="file" id="openInput" accept=".bacalhau" style="display:none" onchange="handleOpenFile(this)">
+    <input type="file" id="themeInput" accept=".css" style="display:none" onchange="handleImportTheme(this)">
+    <button onclick="document.getElementById('openInput').click()">Open</button>
     <select id="themeSelect" onchange="switchTheme(this.value)" style="width:100%;padding:5px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;">
       <option value="">No theme</option>
     </select>
     <button onclick="newFile('')">+ New Chapter</button>
     <button onclick="newDir('')">+ New Folder</button>
-    <button onclick="saveProject()">Save .zip</button>
-    <button class="primary" id="exportBtn" onclick="exportMarkdown()">Export .md</button>
+    <div class="export-wrap">
+      <div class="export-menu" id="exportMenu">
+        <button onclick="saveBacalhau()">Save .bacalhau</button>
+        <button onclick="saveProject()">Save .zip</button>
+        <button onclick="exportMarkdown()">Save .md</button>
+        <button onclick="exportPDF()">Save .pdf</button>
+      </div>
+      <button class="primary" id="exportBtn" onclick="toggleExportMenu(event)">Save As &uarr;</button>
+    </div>
     <div class="status" id="status"></div>
   </div>
 </div>
 
 <div class="editor-pane" id="editorPane">
   <div class="editor-scroll" id="editorScroll"></div>
+</div>
+
+<div id="welcomeOverlay" class="welcome-overlay" style="display:none">
+  <div class="welcome-card">
+    <h2 style="color:var(--fg);margin:0 0 8px;font-size:22px;">Bacalhau</h2>
+    <p style="color:var(--fg2);margin:0 0 20px;font-size:13px;">Open a manuscript to get started.</p>
+    <button style="margin:4px;padding:10px 24px;" onclick="document.getElementById('openInput').click()">Open .bacalhau File</button>
+    <button style="margin:4px;padding:10px 24px;" onclick="document.getElementById('welcomeOverlay').style.display='none';newFile('')">New Project</button>
+  </div>
 </div>
 
 <div class="sync-bar">
@@ -435,6 +507,12 @@ function inline(t) {
 async function loadTree() {
   const data = await api('/api/tree');
   tree = data.tree;
+  const welcome = document.getElementById('welcomeOverlay');
+  if (tree.length === 0) {
+    welcome.style.display = 'flex';
+  } else {
+    welcome.style.display = 'none';
+  }
   renderTree();
   await buildEditor();
   renderPreview();
@@ -956,6 +1034,66 @@ async function toggleLock(path) {
   await loadTree();
 }
 
+async function saveBacalhau() {
+  document.getElementById('exportMenu').classList.remove('open');
+  setStatus('Saving .bacalhau\u2026');
+  document.getElementById('exportBtn').disabled = true;
+  try {
+    const r = await fetch('/api/save/bacalhau');
+    if (!r.ok) {
+      const err = await r.json();
+      setStatus(err.error || 'Save failed');
+      return;
+    }
+    const ct = r.headers.get('Content-Type') || '';
+    if (ct.includes('application/json')) {
+      const data = await r.json();
+      setStatus('Saved to ' + (data.path || '.bacalhau'));
+    } else {
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const disp = r.headers.get('Content-Disposition') || '';
+      const match = disp.match(/filename="?([^"]+)"?/);
+      a.download = match ? match[1] : 'project.bacalhau';
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus('Downloaded ' + a.download);
+    }
+  } catch(e) {
+    setStatus('Save failed');
+  } finally {
+    document.getElementById('exportBtn').disabled = false;
+  }
+}
+
+async function handleOpenFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  setStatus('Opening ' + file.name + '\u2026');
+  try {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const b64 = btoa(binary);
+    const r = await fetch('/api/open', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({filename: file.name, data: b64})
+    });
+    const data = await r.json();
+    if (data.error) { setStatus(data.error); return; }
+    input.value = '';
+    document.getElementById('welcomeOverlay').style.display = 'none';
+    await loadTree();
+    setStatus('Opened ' + file.name);
+  } catch(e) {
+    setStatus('Open failed');
+  }
+}
+
 async function saveProject() {
   setStatus('Saving...');
   const r = await fetch('/api/save/zip');
@@ -969,7 +1107,14 @@ async function saveProject() {
   setStatus('Downloaded bone-china-chapters.zip');
 }
 
+function toggleExportMenu(e) {
+  e.stopPropagation();
+  document.getElementById('exportMenu').classList.toggle('open');
+}
+document.addEventListener('click', () => document.getElementById('exportMenu').classList.remove('open'));
+
 async function exportMarkdown() {
+  document.getElementById('exportMenu').classList.remove('open');
   setStatus('Generating...');
   document.getElementById('exportBtn').disabled = true;
   const r = await fetch('/api/export/markdown');
@@ -982,6 +1127,32 @@ async function exportMarkdown() {
   URL.revokeObjectURL(url);
   setStatus('Downloaded bone-china.md');
   document.getElementById('exportBtn').disabled = false;
+}
+
+async function exportPDF() {
+  document.getElementById('exportMenu').classList.remove('open');
+  setStatus('Generating PDF…');
+  document.getElementById('exportBtn').disabled = true;
+  try {
+    const r = await fetch('/api/export/pdf');
+    if (!r.ok) {
+      const err = await r.json();
+      setStatus(err.error || 'PDF export failed');
+      return;
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'bone-china.pdf';
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus('Downloaded bone-china.pdf');
+  } catch(e) {
+    setStatus('PDF export failed');
+  } finally {
+    document.getElementById('exportBtn').disabled = false;
+  }
 }
 
 // ── Sync ─────────────────────────────────────────────────────────────────────
@@ -1132,6 +1303,7 @@ function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
 document.addEventListener('keydown', e => {
   if ((e.metaKey||e.ctrlKey) && e.key === 's') { e.preventDefault(); saveFile(); }
+  if ((e.metaKey||e.ctrlKey) && e.key === 'o') { e.preventDefault(); document.getElementById('openInput').click(); }
 });
 
 // ── Themes ───────────────────────────────────────────────────────────────────
@@ -1145,6 +1317,14 @@ async function loadThemes() {
     opt.textContent = name.replace('.css', '');
     select.appendChild(opt);
   }
+  const sep = document.createElement('option');
+  sep.disabled = true;
+  sep.textContent = '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500';
+  select.appendChild(sep);
+  const imp = document.createElement('option');
+  imp.value = '__import__';
+  imp.textContent = 'Import theme\u2026';
+  select.appendChild(imp);
   // Restore saved theme
   const saved = localStorage.getItem('bc-theme') || '';
   if (saved && data.themes.includes(saved)) {
@@ -1154,8 +1334,43 @@ async function loadThemes() {
 }
 
 function switchTheme(name) {
+  if (name === '__import__') {
+    document.getElementById('themeInput').click();
+    // Reset select to current theme
+    const select = document.getElementById('themeSelect');
+    select.value = localStorage.getItem('bc-theme') || '';
+    return;
+  }
   localStorage.setItem('bc-theme', name);
   applyTheme(name);
+}
+
+async function handleImportTheme(input) {
+  const file = input.files[0];
+  if (!file) return;
+  setStatus('Importing theme\u2026');
+  try {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const b64 = btoa(binary);
+    const r = await fetch('/api/themes/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({filename: file.name, data: b64})
+    });
+    const data = await r.json();
+    if (data.error) { setStatus(data.error); return; }
+    input.value = '';
+    await loadThemes();
+    // Auto-select the imported theme
+    document.getElementById('themeSelect').value = file.name;
+    switchTheme(file.name);
+    setStatus('Imported ' + file.name);
+  } catch(e) {
+    setStatus('Import failed');
+  }
 }
 
 function applyTheme(name) {
@@ -1165,6 +1380,13 @@ function applyTheme(name) {
 
 loadTree();
 loadThemes();
+
+// Heartbeat — tells server we're alive
+setInterval(() => fetch('/api/heartbeat').catch(()=>{}), 5000);
+// Beacon on close — immediate shutdown signal
+window.addEventListener('beforeunload', () => {
+  navigator.sendBeacon('/api/shutdown');
+});
 </script>
 </body>
 </html>
@@ -1188,10 +1410,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.serve_preview()
         elif self.path == "/api/export/markdown":
             self.export_markdown()
+        elif self.path == "/api/export/pdf":
+            self.export_pdf()
         elif self.path == "/api/save/zip":
             self.save_zip()
+        elif self.path == "/api/save/bacalhau":
+            self.save_bacalhau()
         elif self.path == "/api/themes":
             self.serve_themes_list()
+        elif self.path == "/api/heartbeat":
+            global _last_heartbeat
+            _last_heartbeat = time.time()
+            self.send_json(200, {"ok": True})
         elif self.path.startswith("/api/themes/"):
             self.serve_theme_css()
         else:
@@ -1212,6 +1442,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.copy_chapter()
         elif self.path.endswith("/chmod"):
             self.chmod_chapter()
+        elif self.path == "/api/shutdown":
+            _repack_bacalhau()
+            self.send_json(200, {"ok": True})
+            threading.Timer(0.5, lambda: os._exit(0)).start()
+        elif self.path == "/api/open":
+            self.open_project()
+        elif self.path == "/api/themes/import":
+            self.import_theme()
         else:
             self.send_json(404, {"error": "Not found"})
 
@@ -1604,6 +1842,58 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def export_pdf(self):
+        """Generate PDF via Pandoc + XeLaTeX and serve as a download."""
+        import shutil as _shutil
+        import subprocess as _sub
+        import tempfile
+        if not _shutil.which("pandoc"):
+            self.send_json(500, {"error": "pandoc not found. Install: brew install pandoc"})
+            return
+        if not _shutil.which("xelatex"):
+            self.send_json(500, {"error": "xelatex not found. Install: brew install --cask mactex-no-gui"})
+            return
+        # Assemble markdown with scene numbers
+        parts = []
+        counter = [0]
+        for filepath in walk_files(CHAPTERS_DIR):
+            with open(filepath, "r") as f:
+                content = f.read()
+            basename = os.path.basename(filepath)
+            if basename != "_part.md" and not basename.startswith("intermezzo-") and basename != "title.md":
+                counter[0] += 1
+                n = counter[0]
+                content = re.sub(r"^(### )(.+)$", rf"\g<1>{n}. \2", content, count=1, flags=re.MULTILINE)
+            parts.append(content)
+        text = "".join(parts)
+        # Build pandoc command
+        cmd = ["pandoc", "--from", "markdown", "--to", "pdf", "--pdf-engine=xelatex"]
+        template_dir = os.path.join(os.path.dirname(CHAPTERS_DIR), "latex")
+        if os.path.isdir(template_dir):
+            t = os.path.join(template_dir, "template.tex")
+            m = os.path.join(template_dir, "metadata.yaml")
+            if os.path.exists(t): cmd += ["--template", t]
+            if os.path.exists(m): cmd += ["--metadata-file", m]
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            cmd += ["-o", tmp_path]
+            proc = _sub.run(cmd, input=text, capture_output=True, text=True)
+            if proc.returncode != 0:
+                self.send_json(500, {"error": f"Pandoc failed: {proc.stderr[:500]}"})
+                return
+            with open(tmp_path, "rb") as f:
+                data = f.read()
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Disposition", 'attachment; filename="bone-china.pdf"')
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def save_zip(self):
         """Zip the entire chapters/ directory and serve as a download."""
         import io
@@ -1627,6 +1917,98 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def save_bacalhau(self):
+        """Save project as .bacalhau (zip with custom extension)."""
+        import io
+        import zipfile
+        if BACALHAU_FILE:
+            # In-place save: repack to original file
+            _repack_bacalhau()
+            self.send_json(200, {"message": "Saved", "path": os.path.basename(BACALHAU_FILE)})
+        else:
+            # Download mode: build zip and serve
+            buf = io.BytesIO()
+            project_root = os.path.dirname(CHAPTERS_DIR)
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for root, dirs, files in os.walk(CHAPTERS_DIR):
+                    dirs[:] = [d for d in dirs if not d.startswith(".")]
+                    for fname in sorted(files):
+                        if fname.startswith("."):
+                            continue
+                        filepath = os.path.join(root, fname)
+                        arcname = os.path.relpath(filepath, CHAPTERS_DIR)
+                        zf.write(filepath, os.path.join("chapters", arcname))
+                latex_dir = os.path.join(project_root, "latex")
+                if os.path.isdir(latex_dir):
+                    for root2, dirs2, files2 in os.walk(latex_dir):
+                        dirs2[:] = [d for d in dirs2 if not d.startswith(".")]
+                        for fname in sorted(files2):
+                            if fname.startswith("."):
+                                continue
+                            filepath = os.path.join(root2, fname)
+                            arcname = os.path.relpath(filepath, latex_dir)
+                            zf.write(filepath, os.path.join("latex", arcname))
+            data = buf.getvalue()
+            name = os.path.basename(project_root) + ".bacalhau"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    def open_project(self):
+        """Open a .bacalhau file uploaded from the browser."""
+        global CHAPTERS_DIR, BACALHAU_FILE, TEMP_DIR
+        import base64
+        import tempfile
+        import zipfile
+        body = self.read_body()
+        if not body or "data" not in body:
+            self.send_json(400, {"error": "Missing file data"})
+            return
+        try:
+            raw = base64.b64decode(body["data"])
+        except Exception:
+            self.send_json(400, {"error": "Invalid file data"})
+            return
+        # Save current project if it's a .bacalhau
+        _repack_bacalhau()
+        # Clean up old temp dir
+        old_temp = TEMP_DIR
+        # Extract to new temp dir
+        new_temp = tempfile.mkdtemp(prefix="bacalhau-")
+        tmp_file = os.path.join(new_temp, "upload.bacalhau")
+        with open(tmp_file, "wb") as f:
+            f.write(raw)
+        try:
+            with zipfile.ZipFile(tmp_file, "r") as zf:
+                for member in zf.namelist():
+                    target = os.path.realpath(os.path.join(new_temp, member))
+                    if not target.startswith(os.path.realpath(new_temp) + os.sep) and target != os.path.realpath(new_temp):
+                        self.send_json(400, {"error": f"Unsafe path in archive: {member}"})
+                        shutil.rmtree(new_temp, ignore_errors=True)
+                        return
+                zf.extractall(new_temp)
+            os.unlink(tmp_file)
+        except zipfile.BadZipFile:
+            self.send_json(400, {"error": "Not a valid .bacalhau file"})
+            shutil.rmtree(new_temp, ignore_errors=True)
+            return
+        chapters_path = os.path.join(new_temp, "chapters")
+        if not os.path.isdir(chapters_path):
+            self.send_json(400, {"error": "No chapters/ directory in file"})
+            shutil.rmtree(new_temp, ignore_errors=True)
+            return
+        # Switch to new project
+        CHAPTERS_DIR = chapters_path
+        BACALHAU_FILE = None  # Uploaded copy — no disk path
+        TEMP_DIR = new_temp
+        # Clean up old temp
+        if old_temp and os.path.isdir(old_temp):
+            shutil.rmtree(old_temp, ignore_errors=True)
+        self.send_json(200, {"ok": True, "name": body.get("filename", "project.bacalhau")})
+
     # ── Themes ─────────────────────────────────────────────────────────────────
 
     def serve_themes_list(self):
@@ -1640,9 +2022,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if "/" in name or name.startswith("."):
             self.send_json(400, {"error": "Invalid theme name"})
             return
-        themes_dir = get_themes_dir()
-        filepath = os.path.join(themes_dir, name)
-        if not os.path.exists(filepath) or not name.endswith(".css"):
+        filepath = find_theme(name)
+        if not filepath or not name.endswith(".css"):
             self.send_json(404, {"error": "Theme not found"})
             return
         with open(filepath, "r") as f:
@@ -1651,6 +2032,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/css; charset=utf-8")
         self.end_headers()
         self.wfile.write(css.encode())
+
+    def import_theme(self):
+        """Import a user-uploaded CSS theme file."""
+        import base64
+        body = self.read_body()
+        if not body or "data" not in body or "filename" not in body:
+            self.send_json(400, {"error": "Missing file data"})
+            return
+        name = body["filename"]
+        if not name.endswith(".css") or "/" in name or name.startswith("."):
+            self.send_json(400, {"error": "Invalid theme filename"})
+            return
+        try:
+            raw = base64.b64decode(body["data"])
+        except Exception:
+            self.send_json(400, {"error": "Invalid file data"})
+            return
+        dest = os.path.join(_user_themes_dir(), name)
+        with open(dest, "wb") as f:
+            f.write(raw)
+        self.send_json(200, {"ok": True, "name": name})
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -1668,10 +2070,76 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+# ── Bacalhau file helpers ─────────────────────────────────────────────────────
+
+def _repack_bacalhau():
+    """Re-pack the working directory back into the .bacalhau file."""
+    if not BACALHAU_FILE:
+        return
+    import zipfile
+    tmp_path = BACALHAU_FILE + ".tmp"
+    project_root = os.path.dirname(CHAPTERS_DIR)
+    try:
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(CHAPTERS_DIR):
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                for fname in sorted(files):
+                    if fname.startswith("."):
+                        continue
+                    filepath = os.path.join(root, fname)
+                    arcname = os.path.relpath(filepath, CHAPTERS_DIR)
+                    zf.write(filepath, os.path.join("chapters", arcname))
+            latex_dir = os.path.join(project_root, "latex")
+            if os.path.isdir(latex_dir):
+                for root2, dirs2, files2 in os.walk(latex_dir):
+                    dirs2[:] = [d for d in dirs2 if not d.startswith(".")]
+                    for fname in sorted(files2):
+                        if fname.startswith("."):
+                            continue
+                        filepath = os.path.join(root2, fname)
+                        arcname = os.path.relpath(filepath, latex_dir)
+                        zf.write(filepath, os.path.join("latex", arcname))
+        os.replace(tmp_path, BACALHAU_FILE)
+        print(f"Saved: {BACALHAU_FILE}", file=sys.stderr)
+    except Exception as e:
+        print(f"Error saving .bacalhau: {e}", file=sys.stderr)
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+# ── App window ────────────────────────────────────────────────────────────────
+
+def _open_app_window(url):
+    """Open the editor in a browser. Prefers the system default browser.
+    Falls back to Chromium --app mode if webbrowser.open() fails."""
+    try:
+        webbrowser.open(url)
+    except Exception:
+        # Last resort: try Chromium --app mode
+        candidates = []
+        if sys.platform == "darwin":
+            for app in ("Google Chrome", "Microsoft Edge", "Chromium"):
+                candidates.append(f"/Applications/{app}.app/Contents/MacOS/{app}")
+        else:
+            for name in ("google-chrome", "google-chrome-stable", "chromium-browser",
+                          "chromium", "microsoft-edge"):
+                path = shutil.which(name)
+                if path:
+                    candidates.append(path)
+        for browser in candidates:
+            if os.path.isfile(browser):
+                try:
+                    subprocess.Popen([browser, f"--app={url}"],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return
+                except OSError:
+                    continue
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    global CHAPTERS_DIR
+    global CHAPTERS_DIR, BACALHAU_FILE, TEMP_DIR
 
     # Parse args
     args = sys.argv[1:]
@@ -1689,21 +2157,64 @@ def main():
         else:
             i += 1
 
-    if not project_dir:
-        # Default: look for chapters/ next to the script, fall back to script dir
-        script_dir = os.path.dirname(os.path.abspath(__file__)) or "."
-        chapters_subdir = os.path.join(script_dir, "chapters")
-        if not os.path.isdir(chapters_subdir):
-            os.makedirs(chapters_subdir)
-        project_dir = chapters_subdir
+    import atexit
+    import tempfile
 
-    CHAPTERS_DIR = os.path.abspath(project_dir)
-    if not os.path.isdir(CHAPTERS_DIR):
-        print(f"Error: not a directory: {CHAPTERS_DIR}", file=sys.stderr)
+    if not project_dir:
+        # No project specified — create empty temp dir for welcome state
+        TEMP_DIR = tempfile.mkdtemp(prefix="bacalhau-empty-")
+        CHAPTERS_DIR = os.path.join(TEMP_DIR, "chapters")
+        os.makedirs(CHAPTERS_DIR)
+        def _cleanup_temp():
+            if TEMP_DIR and os.path.isdir(TEMP_DIR):
+                shutil.rmtree(TEMP_DIR, ignore_errors=True)
+        atexit.register(_cleanup_temp)
+    else:
+        # Handle .bacalhau file: extract to temp dir
+        project_dir = os.path.abspath(project_dir)
+        if project_dir.endswith(".bacalhau") and os.path.isfile(project_dir):
+            import zipfile
+            BACALHAU_FILE = project_dir
+            TEMP_DIR = tempfile.mkdtemp(prefix="bacalhau-")
+            with zipfile.ZipFile(BACALHAU_FILE, "r") as zf:
+                # Zip-slip protection
+                for member in zf.namelist():
+                    target = os.path.realpath(os.path.join(TEMP_DIR, member))
+                    if not target.startswith(os.path.realpath(TEMP_DIR) + os.sep) and target != os.path.realpath(TEMP_DIR):
+                        print(f"Error: unsafe path in archive: {member}", file=sys.stderr)
+                        sys.exit(1)
+                zf.extractall(TEMP_DIR)
+            chapters_path = os.path.join(TEMP_DIR, "chapters")
+            if not os.path.isdir(chapters_path):
+                print(f"Error: no chapters/ directory in {BACALHAU_FILE}", file=sys.stderr)
+                shutil.rmtree(TEMP_DIR, ignore_errors=True)
+                sys.exit(1)
+            CHAPTERS_DIR = chapters_path
+            def _cleanup_temp():
+                if TEMP_DIR and os.path.isdir(TEMP_DIR):
+                    shutil.rmtree(TEMP_DIR, ignore_errors=True)
+            atexit.register(_cleanup_temp)
+            print(f"Opened: {BACALHAU_FILE} → {TEMP_DIR}")
+        else:
+            CHAPTERS_DIR = project_dir
+            if not os.path.isdir(CHAPTERS_DIR):
+                print(f"Error: not a directory: {CHAPTERS_DIR}", file=sys.stderr)
+                sys.exit(1)
+
+    # Find an available port
+    pid = os.getpid()
+    server = None
+    for attempt_port in range(port, port + 100):
+        try:
+            server = http.server.HTTPServer(("127.0.0.1", attempt_port), Handler)
+            port = attempt_port
+            break
+        except OSError:
+            continue
+    if server is None:
+        print("Error: no available port found", file=sys.stderr)
         sys.exit(1)
 
-    pid = os.getpid()
-    server = http.server.HTTPServer(("127.0.0.1", port), Handler)
     url = f"http://localhost:{port}"
     print(f"Bacalhau: {url} — editing {CHAPTERS_DIR}")
     print(f"PID: {pid} — kill with: kill {pid}")
@@ -1711,18 +2222,33 @@ def main():
 
     def shutdown(signum, frame):
         print(f"\nReceived signal {signum}, shutting down.")
+        _repack_bacalhau()
         server.server_close()
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGHUP, shutdown)
 
-    threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+    # Heartbeat watchdog — shut down if browser disappears
+    global _last_heartbeat
+    _last_heartbeat = time.time()
+    def _heartbeat_watchdog():
+        time.sleep(30)  # Grace period for browser to connect
+        while True:
+            time.sleep(10)
+            if time.time() - _last_heartbeat > 20:
+                print("\nNo heartbeat — shutting down.", file=sys.stderr)
+                _repack_bacalhau()
+                os._exit(0)
+    threading.Thread(target=_heartbeat_watchdog, daemon=True).start()
+
+    threading.Timer(0.5, lambda: _open_app_window(url)).start()
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")
+        _repack_bacalhau()
         server.server_close()
 
 

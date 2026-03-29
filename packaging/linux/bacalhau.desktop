@@ -2,7 +2,8 @@
 Type=Application
 Name=Bacalhau
 Comment=Browser-based manuscript editor
-Exec=AppRun
+Exec=AppRun %f
 Terminal=false
 Icon=bacalhau
+MimeType=application/x-bacalhau;
 Categories=Office;TextEditor;

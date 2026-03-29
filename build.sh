@@ -52,6 +52,11 @@ chmod +x "$CONTENTS/MacOS/launcher"
 # Editor
 cp "$DIR/editor.py" "$CONTENTS/Resources/editor.py"
 
+# Bundled themes
+if [ -d "$DIR/themes" ]; then
+    cp -r "$DIR/themes" "$CONTENTS/Resources/themes"
+fi
+
 echo "    Created $APP"
 
 # ── Linux AppDir ───────────────────────────────────────────────────────────
@@ -65,6 +70,11 @@ chmod +x "$APPDIR/AppRun"
 cp "$DIR/packaging/linux/bacalhau.desktop" "$APPDIR/bacalhau.desktop"
 cp "$ICON" "$APPDIR/bacalhau.png"
 cp "$DIR/editor.py" "$APPDIR/usr/bin/editor.py"
+if [ -d "$DIR/themes" ]; then
+    cp -r "$DIR/themes" "$APPDIR/usr/bin/themes"
+fi
+mkdir -p "$APPDIR/usr/share/mime/packages"
+cp "$DIR/packaging/linux/bacalhau-mime.xml" "$APPDIR/usr/share/mime/packages/"
 
 # Build .AppImage if appimagetool is available
 if command -v appimagetool >/dev/null 2>&1; then

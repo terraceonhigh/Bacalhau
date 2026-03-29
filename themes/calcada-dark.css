@@ -1,0 +1,27 @@
+/* Calçada Dark — warm lamplight on dark wood, aged ink */
+:root {
+  --bg: #1c1a17;
+  --bg2: #242119;
+  --bg3: #2e2a22;
+  --bg4: #38332a;
+  --fg: #d8d0c4;
+  --fg2: #a89e8e;
+  --fg3: #6e6458;
+  --accent: #c4955a;
+  --gold: #d4a94e;
+  --purple: #8a7a6e;
+  --green: #3a4a2a;
+  --green2: #4a5a3a;
+  --border: #3a3630;
+}
+
+textarea#editor {
+  font-family: Palatino, "Palatino Linotype", Georgia, serif;
+}
+
+.preview-content {
+  font-family: Palatino, "Palatino Linotype", Georgia, serif;
+}
+
+.preview-content h2 { color: #c4955a; }
+.preview-content hr::after { color: #6e6458; }

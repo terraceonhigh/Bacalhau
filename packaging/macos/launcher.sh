@@ -23,25 +23,22 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 # Project directory resolution:
-# 1. chapters/ next to the .app bundle (the intended workflow)
+# 0. .bacalhau file passed as argument (file association double-click)
+# 1. chapters/ next to the .app bundle (if it exists)
 # 2. chapters/ in the current working directory (terminal launch)
-# 3. Create chapters/ next to the .app
-# 4. Last resort: ~/Bacalhau/chapters/
-if [ -d "$PARENT/chapters" ]; then
+# 3. No project — editor.py shows welcome screen
+PROJECT=""
+if [ -n "$1" ] && [ -f "$1" ] && echo "$1" | grep -q '\.bacalhau$'; then
+    PROJECT="$1"
+elif [ -d "$PARENT/chapters" ]; then
     PROJECT="$PARENT/chapters"
 elif [ -d "$PWD/chapters" ]; then
     PROJECT="$PWD/chapters"
-elif mkdir -p "$PARENT/chapters" 2>/dev/null; then
-    PROJECT="$PARENT/chapters"
-    osascript -e "display notification \"Created chapters/ in $PARENT\" with title \"Bacalhau\"" 2>/dev/null
-else
-    mkdir -p "$HOME/Bacalhau/chapters"
-    PROJECT="$HOME/Bacalhau/chapters"
-    osascript -e 'display notification "Writing to ~/Bacalhau/chapters/" with title "Bacalhau"' 2>/dev/null
 fi
 
 # Launch and write PID file
-python3 "$EDITOR" "$PROJECT" &
+LOGFILE="$HOME/.bacalhau.log"
+python3 "$EDITOR" $PROJECT >"$LOGFILE" 2>&1 &
 echo $! > "$PIDFILE"
 
 # Clean up PID file on exit
