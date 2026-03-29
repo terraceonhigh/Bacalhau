@@ -2592,7 +2592,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             arcname = os.path.relpath(filepath, project_root)
                             zf.write(filepath, arcname)
             data = buf.getvalue()
-            name = os.path.basename(project_root) + ".bacalhau"
+            # Derive filename from title.md heading, or fall back to dir name
+            name = None
+            title_path = os.path.join(CHAPTERS_DIR, "title.md")
+            if os.path.isfile(title_path):
+                with open(title_path, "r") as tf:
+                    for line in tf:
+                        m = re.match(r'^#\s+(.+)', line.strip())
+                        if m:
+                            slug = re.sub(r'[^\w\s-]', '', m.group(1).strip()).strip()
+                            slug = re.sub(r'[\s]+', '-', slug).lower()
+                            if slug:
+                                name = slug + ".bacalhau"
+                            break
+            if not name:
+                name = os.path.basename(project_root) + ".bacalhau"
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Disposition", f'attachment; filename="{name}"')
