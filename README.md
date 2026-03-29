@@ -14,19 +14,22 @@ A three-pane editor for long-form writing projects organized as hierarchical mar
 
 ## Getting started
 
-1. Download `Bacalhau.zip` from [Releases](https://github.com/terraceonhigh/Bacalhau/releases)
+1. Download the zip for your platform from [Releases](https://github.com/terraceonhigh/Bacalhau/releases)
 2. Unzip into your project folder (the directory with your `.md` files)
-3. Double-click `Bacalhau.command`
+3. Launch:
+   - **macOS:** Double-click `Bacalhau.command`
+   - **Linux:** Double-click `Bacalhau.desktop`, or run `./Bacalhau` in a terminal
 4. A browser tab opens. Start writing.
 
-That's it. No install, no dependencies, no configuration.
+No install, no dependencies, no configuration. Just Python 3.
 
-### From the command line
+### From the command line (any Unix)
 
 ```bash
-python3 editor.py <project-directory>
-python3 editor.py <project-directory> --port 8080
-python3 editor.py                       # defaults to the directory containing editor.py
+./Bacalhau                              # open the current directory
+./Bacalhau /path/to/project             # open a specific directory
+python3 editor.py <project-directory>   # direct invocation
+python3 editor.py --port 8080           # custom port
 ```
 
 ## Project structure
@@ -94,7 +97,11 @@ Concatenates all files in tree order into a single output file. Scene headings (
 |------|-----------|
 | `editor.py` | The editor — serves the browser UI and file API |
 | `assemble.py` | Concatenates a project into a single markdown/LaTeX/PDF |
+| `Bacalhau.command` | macOS launcher (double-click in Finder) |
+| `Bacalhau` | Unix launcher (shell script, works everywhere) |
+| `Bacalhau.desktop` | Linux launcher (freedesktop `.desktop` entry) |
 | `DESIGN.md` | UI patterns and interaction conventions |
+| `release.sh` | Builds per-platform release zips |
 
 ## Design
 
