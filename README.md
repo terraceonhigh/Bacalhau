@@ -15,9 +15,10 @@ A browser-based markdown manuscript editor for long-form writing projects. One P
 Three-pane layout for editing hierarchical markdown:
 
 - **Sidebar:** File tree with drag-and-drop reordering, inline rename, collapse/expand
-- **Editor:** Continuous scroll with per-file auto-save and live preview
+- **Editor:** Continuous scroll with per-file auto-save, live preview, and seamless arrow-key navigation across files
 - **Preview:** Full manuscript with auto-numbered scene headings and scroll sync
 - **Git panel:** Stage, unstage, commit, and restore from history — no terminal required
+- **Folder browser:** Open any directory from the web UI without touching a terminal
 
 Projects are stored as plain markdown files on disk, organized in directories with `_order.yaml` for ordering.
 
@@ -109,6 +110,10 @@ python3 editor.py project.bacalhau
 
 Or use Cmd+O / the Open button in the sidebar. The file is extracted to a temp directory; edits are saved back on close.
 
+### Browsing folders
+
+Click **Browse** in the sidebar footer (or **Browse Folder** on the welcome screen) to open a visual directory navigator. Browse your home directory, click into folders, and select one to open — no path typing required. Folders containing markdown files are highlighted with a count badge.
+
 ## Themes
 
 Four themes are bundled: Azulejo, Azulejo Dark, Calçada, Calçada Dark. Select from the dropdown in the sidebar.
@@ -157,7 +162,7 @@ The Git tab in the sidebar provides built-in version control:
 
 - **Status:** See which files have changed (M/A/D/? badges)
 - **Stage/Unstage:** Per-file or all-at-once, with `+` and `−` buttons
-- **Commit:** Enter a message and checkpoint your work
+- **Commit:** Enter a message and checkpoint your work — all changes are staged automatically
 - **History:** A stack of past commits with one-click **Restore** to roll back to any version
 
 Restore is non-destructive — it auto-saves your current state before reverting, so every version is always recoverable. No git knowledge required.
@@ -181,3 +186,4 @@ python3 editor.py demo/chapters
 - Scroll sync is proportional, not line-exact. Drift increases toward the edges of long files.
 - Unsigned on macOS. First launch requires right-click → Open.
 - The AppImage requires system Python 3.
+- The folder browser is restricted to your home directory for security.
