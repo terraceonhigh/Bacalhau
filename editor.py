@@ -187,6 +187,7 @@ HTML = """\
 <head>
 <meta charset="utf-8">
 <title>Bacalhau</title>
+<link rel="icon" type="image/png" href="/favicon.png">
 <style>
 :root {
   --bg: #111; --bg2: #1a1a1a; --bg3: #222; --bg4: #2a2a2a;
@@ -1016,6 +1017,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/":
             self.serve_html()
+        elif self.path == "/favicon.png":
+            self.serve_favicon()
         elif self.path == "/api/tree":
             self.serve_tree()
         elif self.path.startswith("/api/chapter/"):
@@ -1072,6 +1075,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(HTML.encode())
+
+    def serve_favicon(self):
+        icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
+        if os.path.exists(icon):
+            with open(icon, "rb") as f:
+                data = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "max-age=86400")
+            self.end_headers()
+            self.wfile.write(data)
+        else:
+            self.send_response(404)
+            self.end_headers()
 
     def serve_tree(self):
         t = build_tree(CHAPTERS_DIR)
