@@ -41,8 +41,6 @@ _last_heartbeat = time.time()
 
 def _git_root():
     """Find the git root directory, or None."""
-    if TEMP_DIR and CHAPTERS_DIR and CHAPTERS_DIR.startswith(TEMP_DIR):
-        return None  # Temp-extracted .bacalhau — no git
     if CHAPTERS_DIR and os.path.isdir(os.path.join(CHAPTERS_DIR, ".git")):
         return CHAPTERS_DIR
     parent = os.path.dirname(CHAPTERS_DIR) if CHAPTERS_DIR else None
@@ -1228,11 +1226,7 @@ function renderGitPanel() {
     return;
   }
   if (!gitState.is_repo) {
-    if (gitState.is_temp) {
-      el.innerHTML = '<div class="git-message">Git is not available for uploaded .bacalhau projects.<br><br>Save as a project directory to use Git.</div>';
-    } else {
-      el.innerHTML = '<div class="git-message">No repository found.<br><br><button class="primary" onclick="gitInit()" style="width:auto;padding:8px 20px;">Initialize Repository</button></div>';
-    }
+    el.innerHTML = '<div class="git-message">No repository found.<br><br><button class="primary" onclick="gitInit()" style="width:auto;padding:8px 20px;">Initialize Repository</button></div>';
     return;
   }
 
@@ -2763,10 +2757,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_json(200, {"git_installed": True, "is_repo": True, "is_temp": is_temp, "files": files})
 
     def git_init(self):
-        is_temp = bool(TEMP_DIR and CHAPTERS_DIR and CHAPTERS_DIR.startswith(TEMP_DIR))
-        if is_temp:
-            self.send_json(400, {"error": "Cannot initialize git in a temporary project"})
-            return
         # Prefer parent of chapters/ as the repo root
         root = CHAPTERS_DIR
         if root and os.path.basename(root) == "chapters":
@@ -2952,6 +2942,14 @@ def _repack_bacalhau():
                         filepath = os.path.join(root2, fname)
                         arcname = os.path.relpath(filepath, latex_dir)
                         zf.write(filepath, os.path.join("latex", arcname))
+            # Bundle .git so version history travels with the file
+            git_dir = os.path.join(project_root, ".git")
+            if os.path.isdir(git_dir):
+                for root3, dirs3, files3 in os.walk(git_dir):
+                    for fname in files3:
+                        filepath = os.path.join(root3, fname)
+                        arcname = os.path.relpath(filepath, project_root)
+                        zf.write(filepath, arcname)
         os.replace(tmp_path, BACALHAU_FILE)
         print(f"Saved: {BACALHAU_FILE}", file=sys.stderr)
     except Exception as e:
