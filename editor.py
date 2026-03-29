@@ -1433,10 +1433,8 @@ def main():
             i += 1
 
     if not project_dir:
-        print("Usage: python3 editor.py <project-dir> [--port PORT]")
-        print("  e.g. python3 editor.py chapters/")
-        print("  e.g. python3 editor.py ~/Labs/Bone-China/chapters")
-        sys.exit(1)
+        # Default to the directory containing the script
+        project_dir = os.path.dirname(os.path.abspath(__file__)) or "."
 
     CHAPTERS_DIR = os.path.abspath(project_dir)
     if not os.path.isdir(CHAPTERS_DIR):

@@ -12,14 +12,22 @@ A three-pane editor for long-form writing projects organized as hierarchical mar
 - **Center:** Markdown editor with auto-save and spell check
 - **Right:** Live preview of the full manuscript with auto-numbering
 
-## Usage
+## Getting started
+
+1. Download `Bacalhau.zip` from [Releases](https://github.com/terraceonhigh/Bacalhau/releases)
+2. Unzip into your project folder (the directory with your `.md` files)
+3. Double-click `Bacalhau.command`
+4. A browser tab opens. Start writing.
+
+That's it. No install, no dependencies, no configuration.
+
+### From the command line
 
 ```bash
 python3 editor.py <project-directory>
 python3 editor.py <project-directory> --port 8080
+python3 editor.py                       # defaults to the directory containing editor.py
 ```
-
-Opens the editor at `localhost:3000`. The project directory should contain `.md` files and/or subdirectories. Each directory can have an `_order.yaml` file to control sibling order.
 
 ## Project structure
 
