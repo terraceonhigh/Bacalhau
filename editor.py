@@ -2583,6 +2583,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             filepath = os.path.join(root2, fname)
                             arcname = os.path.relpath(filepath, latex_dir)
                             zf.write(filepath, os.path.join("latex", arcname))
+                # Bundle .git so version history travels with the file
+                git_dir = os.path.join(project_root, ".git")
+                if os.path.isdir(git_dir):
+                    for root3, dirs3, files3 in os.walk(git_dir):
+                        for fname in files3:
+                            filepath = os.path.join(root3, fname)
+                            arcname = os.path.relpath(filepath, project_root)
+                            zf.write(filepath, arcname)
             data = buf.getvalue()
             name = os.path.basename(project_root) + ".bacalhau"
             self.send_response(200)
