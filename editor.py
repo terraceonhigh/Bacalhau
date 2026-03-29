@@ -1476,6 +1476,8 @@ function handleSaveAs(fmt) {
   else if (fmt === 'pdf') exportPDF();
 }
 
+let _bacalhauFileHandle = null;  // File System Access API handle for overwrite
+
 async function saveBacalhau() {
   setStatus('Saving .bacalhau\u2026');
   try {
@@ -1491,6 +1493,40 @@ async function saveBacalhau() {
       setStatus('Saved to ' + (data.path || '.bacalhau'));
     } else {
       const blob = await r.blob();
+      // Try to overwrite the original file via File System Access API
+      if (_bacalhauFileHandle) {
+        try {
+          const writable = await _bacalhauFileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          setStatus('Saved ' + _bacalhauFileHandle.name);
+          return;
+        } catch(e) {
+          // Permission revoked or API error — fall through to download
+        }
+      }
+      // Try showSaveFilePicker for a native save dialog
+      if (window.showSaveFilePicker) {
+        try {
+          const disp = r.headers.get('Content-Disposition') || '';
+          const match = disp.match(/filename="?([^"]+)"?/);
+          const suggestedName = match ? match[1] : 'project.bacalhau';
+          const handle = await window.showSaveFilePicker({
+            suggestedName,
+            types: [{description: 'Bacalhau project', accept: {'application/octet-stream': ['.bacalhau']}}]
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          _bacalhauFileHandle = handle;
+          setStatus('Saved ' + handle.name);
+          return;
+        } catch(e) {
+          if (e.name === 'AbortError') { setStatus('Save cancelled'); return; }
+          // Fall through to legacy download
+        }
+      }
+      // Legacy fallback: browser download
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1506,14 +1542,38 @@ async function saveBacalhau() {
   }
 }
 
-function handleOpen(value) {
-  if (value === 'bacalhau') document.getElementById('openInput').click();
-  else if (value === 'folder') openBrowse();
+async function handleOpen(value) {
+  if (value === 'bacalhau') {
+    // Try File System Access API first — gives us a handle for overwriting later
+    if (window.showOpenFilePicker) {
+      try {
+        const [handle] = await window.showOpenFilePicker({
+          types: [{description: 'Bacalhau project', accept: {'application/octet-stream': ['.bacalhau']}}]
+        });
+        const file = await handle.getFile();
+        _bacalhauFileHandle = handle;
+        await openBacalhauFile(file);
+        return;
+      } catch(e) {
+        if (e.name === 'AbortError') return;  // User cancelled
+        // Fall through to legacy input
+      }
+    }
+    document.getElementById('openInput').click();
+  } else if (value === 'folder') {
+    openBrowse();
+  }
 }
 
 async function handleOpenFile(input) {
   const file = input.files[0];
   if (!file) return;
+  _bacalhauFileHandle = null;  // Legacy input — no handle for overwrite
+  await openBacalhauFile(file);
+  input.value = '';
+}
+
+async function openBacalhauFile(file) {
   setStatus('Opening ' + file.name + '\u2026');
   try {
     const buf = await file.arrayBuffer();
@@ -1528,7 +1588,6 @@ async function handleOpenFile(input) {
     });
     const data = await r.json();
     if (data.error) { setStatus(data.error); return; }
-    input.value = '';
     document.getElementById('welcomeOverlay').style.display = 'none';
     await loadTree();
     setStatus('Opened ' + file.name);
