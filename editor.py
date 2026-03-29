@@ -142,6 +142,20 @@ def get_heading(filepath):
     return None
 
 
+def get_themes_dir():
+    """Return the themes/ directory next to chapters/. Create if absent."""
+    themes = os.path.join(os.path.dirname(CHAPTERS_DIR), "themes")
+    if not os.path.isdir(themes):
+        os.makedirs(themes, exist_ok=True)
+    return themes
+
+
+def list_themes():
+    """List available .css theme files."""
+    themes_dir = get_themes_dir()
+    return sorted(f for f in os.listdir(themes_dir) if f.endswith(".css"))
+
+
 def walk_files(directory):
     """Recursively yield all .md file paths in order."""
     for entry in read_order(directory):
@@ -317,6 +331,7 @@ textarea#editor {
 .preview-content code { font-family: monospace; background: var(--bg3); padding: 1px 4px; border-radius: 2px; font-size: 0.9em; }
 .preview-content .chapter-anchor { display: block; position: relative; top: -20px; }
 </style>
+<link id="theme-css" rel="stylesheet" href="">
 </head>
 <body>
 
@@ -327,6 +342,9 @@ textarea#editor {
   </div>
   <div class="tree" id="tree"></div>
   <div class="sidebar-footer">
+    <select id="themeSelect" onchange="switchTheme(this.value)" style="width:100%;padding:5px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;">
+      <option value="">No theme</option>
+    </select>
     <button onclick="newFile('')">+ New Chapter</button>
     <button onclick="newDir('')">+ New Folder</button>
     <button onclick="saveProject()">Save .zip</button>
@@ -953,7 +971,37 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey||e.ctrlKey) && e.key === 's') { e.preventDefault(); saveFile(); }
 });
 
+// ── Themes ───────────────────────────────────────────────────────────────────
+async function loadThemes() {
+  const data = await api('/api/themes');
+  const select = document.getElementById('themeSelect');
+  select.innerHTML = '<option value="">No theme</option>';
+  for (const name of data.themes) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name.replace('.css', '');
+    select.appendChild(opt);
+  }
+  // Restore saved theme
+  const saved = localStorage.getItem('bc-theme') || '';
+  if (saved && data.themes.includes(saved)) {
+    select.value = saved;
+    applyTheme(saved);
+  }
+}
+
+function switchTheme(name) {
+  localStorage.setItem('bc-theme', name);
+  applyTheme(name);
+}
+
+function applyTheme(name) {
+  const link = document.getElementById('theme-css');
+  link.href = name ? '/api/themes/' + encodeURIComponent(name) : '';
+}
+
 loadTree();
+loadThemes();
 </script>
 </body>
 </html>
@@ -977,6 +1025,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.export_markdown()
         elif self.path == "/api/save/zip":
             self.save_zip()
+        elif self.path == "/api/themes":
+            self.serve_themes_list()
+        elif self.path.startswith("/api/themes/"):
+            self.serve_theme_css()
         else:
             self.send_json(404, {"error": "Not found"})
 
@@ -1394,6 +1446,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    # ── Themes ─────────────────────────────────────────────────────────────────
+
+    def serve_themes_list(self):
+        themes = list_themes()
+        self.send_json(200, {"themes": themes})
+
+    def serve_theme_css(self):
+        name = self.path.split("/api/themes/", 1)[1]
+        name = urllib.parse.unquote(name)
+        # Prevent path traversal
+        if "/" in name or name.startswith("."):
+            self.send_json(400, {"error": "Invalid theme name"})
+            return
+        themes_dir = get_themes_dir()
+        filepath = os.path.join(themes_dir, name)
+        if not os.path.exists(filepath) or not name.endswith(".css"):
+            self.send_json(404, {"error": "Theme not found"})
+            return
+        with open(filepath, "r") as f:
+            css = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/css; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(css.encode())
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
