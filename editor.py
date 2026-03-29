@@ -33,6 +33,7 @@ import urllib.parse
 # Set by main() from command-line argument
 CHAPTERS_DIR = None
 BACALHAU_FILE = None   # Path to .bacalhau file when opened from one
+BACALHAU_NAME = None   # Original filename (for browser-opened projects)
 TEMP_DIR = None        # Temp extraction dir (cleaned up on exit)
 _last_heartbeat = time.time()
 
@@ -2592,21 +2593,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             arcname = os.path.relpath(filepath, project_root)
                             zf.write(filepath, arcname)
             data = buf.getvalue()
-            # Derive filename from title.md heading, or fall back to dir name
-            name = None
-            title_path = os.path.join(CHAPTERS_DIR, "title.md")
-            if os.path.isfile(title_path):
-                with open(title_path, "r") as tf:
-                    for line in tf:
-                        m = re.match(r'^#\s+(.+)', line.strip())
-                        if m:
-                            slug = re.sub(r'[^\w\s-]', '', m.group(1).strip()).strip()
-                            slug = re.sub(r'[\s]+', '-', slug).lower()
-                            if slug:
-                                name = slug + ".bacalhau"
-                            break
-            if not name:
-                name = os.path.basename(project_root) + ".bacalhau"
+            name = BACALHAU_NAME or (os.path.basename(project_root) + ".bacalhau")
+            if not name.endswith(".bacalhau"):
+                name += ".bacalhau"
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Disposition", f'attachment; filename="{name}"')
@@ -2616,7 +2605,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def open_project(self):
         """Open a .bacalhau file uploaded from the browser."""
-        global CHAPTERS_DIR, BACALHAU_FILE, TEMP_DIR
+        global CHAPTERS_DIR, BACALHAU_FILE, BACALHAU_NAME, TEMP_DIR
         import base64
         import tempfile
         import zipfile
@@ -2660,6 +2649,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # Switch to new project
         CHAPTERS_DIR = chapters_path
         BACALHAU_FILE = None  # Uploaded copy — no disk path
+        BACALHAU_NAME = body.get("filename", "project.bacalhau")
         TEMP_DIR = new_temp
         # Clean up old temp
         if old_temp and os.path.isdir(old_temp):
