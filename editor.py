@@ -774,10 +774,9 @@ function getVisibleEditorFile() {
 document.addEventListener('DOMContentLoaded', () => {
   const editorScroll = document.getElementById('editorScroll');
   if (!editorScroll) return;
-  let editorSyncTimer = null;
+  let editorSyncPending = false;
   editorScroll.addEventListener('scroll', () => {
     if (selectGuard) return;
-    // Update active file immediately on every scroll
     const visible = getVisibleEditorFile();
     const fileChanged = visible && visible !== activeFile;
     if (fileChanged) {
@@ -785,11 +784,9 @@ document.addEventListener('DOMContentLoaded', () => {
       renderTree();
       highlightActiveHeader();
     }
-    // Sync to preview if linked — debounce slightly to avoid feedback loops
-    // and skip the tick where activeFile just changed (prevents jumping)
-    if (syncLinked && syncSource !== 'preview' && !fileChanged) {
-      clearTimeout(editorSyncTimer);
-      editorSyncTimer = setTimeout(syncEditorToPreview, 16);
+    if (syncLinked && syncSource !== 'preview' && !fileChanged && !editorSyncPending) {
+      editorSyncPending = true;
+      requestAnimationFrame(() => { syncEditorToPreview(); editorSyncPending = false; });
     }
   });
 });
