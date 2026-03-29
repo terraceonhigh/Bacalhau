@@ -1,22 +1,22 @@
-/* Calçada Light — aged parchment, sepia ink, cartographer's desk */
+/* Calçada Light — Portuguese limestone and basalt pavement */
 :root {
-  --bg: #f2e8d5;
-  --bg2: #e8dcc6;
-  --bg3: #ddd0b8;
-  --bg4: #d2c4aa;
-  --fg: #2a2218;
-  --fg2: #5a4e3a;
-  --fg3: #8a7e6a;
-  --accent: #8a6a2e;
-  --gold: #b8882e;
-  --purple: #6a5a4e;
-  --green: #4a5a2a;
-  --green2: #5a6a3a;
-  --border: #c4b8a0;
+  --bg: #ece6dc;
+  --bg2: #e2dbd0;
+  --bg3: #d6cfc3;
+  --bg4: #cbc3b6;
+  --fg: #2b2b2b;
+  --fg2: #4a4a48;
+  --fg3: #7a7a76;
+  --accent: #4a4a48;
+  --gold: #8a8478;
+  --purple: #5a5a58;
+  --green: #4a5a4a;
+  --green2: #5a6a5a;
+  --border: #c0b9ad;
 }
 
 textarea#editor {
-  color: #2a2218;
+  color: #2b2b2b;
   font-family: Palatino, "Palatino Linotype", Georgia, serif;
 }
 
@@ -24,5 +24,5 @@ textarea#editor {
   font-family: Palatino, "Palatino Linotype", Georgia, serif;
 }
 
-.preview-content h2 { color: #5a4e3a; }
-.preview-content hr::after { color: #8a7e6a; }
+.preview-content h2 { color: #4a4a48; }
+.preview-content hr::after { color: #7a7a76; }
