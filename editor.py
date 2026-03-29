@@ -757,28 +757,34 @@ async function saveFile() {
   }
 }
 
-// Track which file is visible in the editor scroll
+// Track which file is visible in the editor scroll + sync
+function getVisibleEditorFile() {
+  const editorScroll = document.getElementById('editorScroll');
+  if (!editorScroll) return null;
+  const rect = editorScroll.getBoundingClientRect();
+  const midY = rect.top + rect.height * 0.3;
+  let best = null, bestDist = Infinity;
+  document.querySelectorAll('.file-section').forEach(s => {
+    const d = Math.abs(s.getBoundingClientRect().top - midY);
+    if (d < bestDist) { bestDist = d; best = s.dataset.path; }
+  });
+  return best;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const editorScroll = document.getElementById('editorScroll');
   if (!editorScroll) return;
-  let editorTrackTimer = null;
   editorScroll.addEventListener('scroll', () => {
     if (selectGuard) return;
-    clearTimeout(editorTrackTimer);
-    editorTrackTimer = setTimeout(() => {
-      const rect = editorScroll.getBoundingClientRect();
-      const midY = rect.top + rect.height * 0.3;
-      let best = null, bestDist = Infinity;
-      document.querySelectorAll('.file-section').forEach(s => {
-        const d = Math.abs(s.getBoundingClientRect().top - midY);
-        if (d < bestDist) { bestDist = d; best = s.dataset.path; }
-      });
-      if (best && best !== activeFile) {
-        activeFile = best;
-        renderTree();
-        highlightActiveHeader();
-      }
-    }, 150);
+    // Update active file immediately on every scroll
+    const visible = getVisibleEditorFile();
+    if (visible && visible !== activeFile) {
+      activeFile = visible;
+      renderTree();
+      highlightActiveHeader();
+    }
+    // Sync to preview if linked
+    if (syncLinked && syncSource !== 'preview') syncEditorToPreview();
   });
 });
 
@@ -1062,13 +1068,7 @@ function toggleSync() {
   if (syncLinked) syncEditorToPreview();
 }
 
-// Editor scroll sync — attached after DOM ready
-document.addEventListener('DOMContentLoaded', () => {
-  const es = document.getElementById('editorScroll');
-  if (es) es.addEventListener('scroll', () => {
-    if (syncLinked && syncSource !== 'preview') syncEditorToPreview();
-  });
-});
+// Editor scroll sync handled in the unified scroll listener above
 
 let previewScrollTimer = null;
 document.getElementById('previewPane').addEventListener('scroll', () => {
