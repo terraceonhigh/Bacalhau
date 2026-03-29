@@ -323,16 +323,17 @@ button.primary:hover { opacity: 0.85; }
 
 /* ── Sync Bar ── */
 .sync-bar {
-  width: 32px; min-width: 32px; background: var(--accent);
-  border-left: 1px solid var(--accent); border-right: 1px solid var(--accent);
+  width: 8px; min-width: 8px; background: var(--accent);
   display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 8px;
+  justify-content: center; gap: 6px;
+  position: relative; z-index: 3;
 }
 .sync-btn {
-  width: 26px; height: 26px; padding: 0; border-radius: 3px;
+  width: 26px; height: 26px; padding: 0; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; line-height: 1; background: var(--bg2);
-  border: 1px solid var(--bg2); color: var(--accent); cursor: pointer;
+  font-size: 11px; line-height: 1; background: var(--bg2);
+  border: 2px solid var(--accent); color: var(--fg2); cursor: pointer;
+  position: relative;
 }
 .sync-btn:hover { background: var(--bg4); color: var(--fg); }
 .sync-btn.toggle.active { background: var(--accent); border-color: var(--accent); color: #fff; }
