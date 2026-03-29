@@ -1436,7 +1436,9 @@ def main():
         # Default: look for chapters/ next to the script, fall back to script dir
         script_dir = os.path.dirname(os.path.abspath(__file__)) or "."
         chapters_subdir = os.path.join(script_dir, "chapters")
-        project_dir = chapters_subdir if os.path.isdir(chapters_subdir) else script_dir
+        if not os.path.isdir(chapters_subdir):
+            os.makedirs(chapters_subdir)
+        project_dir = chapters_subdir
 
     CHAPTERS_DIR = os.path.abspath(project_dir)
     if not os.path.isdir(CHAPTERS_DIR):
