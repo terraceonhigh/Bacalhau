@@ -314,7 +314,7 @@ body { font-family: -apple-system, "Helvetica Neue", sans-serif; background: var
 .sidebar-header-content img { width: 32px; height: 32px; border-radius: 4px; flex-shrink: 0; }
 .sidebar-header-content div { flex: 1; }
 .sidebar-header h1 { font-size: 16px; font-weight: 600; margin-bottom: 2px; }
-.sidebar-header p { font-size: 11px; color: var(--fg3); }
+.sidebar-header p { font-size: 11px; }
 .tree { list-style: none; overflow-y: auto; flex: 1; padding: 8px; }
 .tree ul { list-style: none; padding-left: 16px; }
 .tree > ul { padding-left: 0; }
@@ -608,7 +608,7 @@ button.primary:hover { opacity: 0.85; }
       <img src="/favicon.png" alt="">
       <div>
         <h1>Bacalhau</h1>
-        <p>Click to edit. Drag to reorder.</p>
+        <p id="projectName"></p>
       </div>
     </div>
   </div>
@@ -838,6 +838,8 @@ function inline(t) {
 async function loadTree() {
   const data = await api('/api/tree');
   tree = data.tree;
+  const pn = document.getElementById('projectName');
+  if (pn) pn.textContent = data.project || '';
   const welcome = document.getElementById('welcomeOverlay');
   if (tree.length === 0) {
     welcome.style.display = 'flex';
@@ -2272,7 +2274,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def serve_tree(self):
         t = build_tree(CHAPTERS_DIR)
-        self.send_json(200, {"tree": t})
+        # Derive project name from .bacalhau filename or directory name
+        if BACALHAU_NAME:
+            pname = BACALHAU_NAME.replace('.bacalhau', '')
+        elif BACALHAU_FILE:
+            pname = os.path.basename(BACALHAU_FILE).replace('.bacalhau', '')
+        else:
+            d = CHAPTERS_DIR
+            if d and os.path.basename(d) == 'chapters':
+                d = os.path.dirname(d)
+            pname = os.path.basename(d) if d else ''
+        self.send_json(200, {"tree": t, "project": pname})
 
     def serve_chapter(self):
         relpath = self.path.split("/api/chapter/", 1)[1]
