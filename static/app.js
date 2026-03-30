@@ -14,6 +14,26 @@ async function api(path, opts) {
   return r.json();
 }
 
+// ── Header menu ──────────────────────────────────────────────────────────────
+function toggleHeaderMenu() {
+  const menu = document.getElementById('headerMenu');
+  menu.style.display = menu.style.display === 'none' ? '' : 'none';
+}
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('headerMenu');
+  if (menu && !e.target.closest('.header-menu-wrap')) menu.style.display = 'none';
+});
+async function showAbout() {
+  document.getElementById('headerMenu').style.display = 'none';
+  try {
+    const data = await api('/api/version');
+    document.getElementById('aboutVersion').textContent = data.version || 'dev';
+  } catch(e) {
+    document.getElementById('aboutVersion').textContent = 'dev';
+  }
+  document.getElementById('aboutOverlay').style.display = 'flex';
+}
+
 // ── Aperiodic tiling ─────────────────────────────────────────────────────────
 // Adapted from https://github.com/terraceonhigh/penrose-calcada (1e75b4e)
 // Penrose P3 via Robinson triangle subdivision. Upstream is the interactive

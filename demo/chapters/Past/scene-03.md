@@ -1,4 +1,4 @@
-### Salt and patience
+### Salt and Patience
 
 They split the bacalhau in the stone shed behind the market, Maria holding the knife while her father guided the blade along the spine. The flesh opened white and clean.
 
