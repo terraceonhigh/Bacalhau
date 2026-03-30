@@ -49,8 +49,17 @@ sed "s/__VERSION__/$VERSION/g" "$DIR/packaging/macos/Info.plist.template" \
 cp "$DIR/packaging/macos/launcher.sh" "$CONTENTS/MacOS/launcher"
 chmod +x "$CONTENTS/MacOS/launcher"
 
-# Editor
+# Editor modules
 cp "$DIR/editor.py" "$CONTENTS/Resources/editor.py"
+cp "$DIR/state.py" "$CONTENTS/Resources/state.py"
+cp "$DIR/helpers.py" "$CONTENTS/Resources/helpers.py"
+cp "$DIR/server.py" "$CONTENTS/Resources/server.py"
+
+# Static assets
+cp -r "$DIR/static" "$CONTENTS/Resources/static"
+
+# Vendored libraries
+cp -r "$DIR/vendor" "$CONTENTS/Resources/vendor"
 
 # Bundled themes
 if [ -d "$DIR/themes" ]; then
@@ -70,6 +79,11 @@ chmod +x "$APPDIR/AppRun"
 cp "$DIR/packaging/linux/bacalhau.desktop" "$APPDIR/bacalhau.desktop"
 cp "$ICON" "$APPDIR/bacalhau.png"
 cp "$DIR/editor.py" "$APPDIR/usr/bin/editor.py"
+cp "$DIR/state.py" "$APPDIR/usr/bin/state.py"
+cp "$DIR/helpers.py" "$APPDIR/usr/bin/helpers.py"
+cp "$DIR/server.py" "$APPDIR/usr/bin/server.py"
+cp -r "$DIR/static" "$APPDIR/usr/bin/static"
+cp -r "$DIR/vendor" "$APPDIR/usr/bin/vendor"
 if [ -d "$DIR/themes" ]; then
     cp -r "$DIR/themes" "$APPDIR/usr/bin/themes"
 fi
