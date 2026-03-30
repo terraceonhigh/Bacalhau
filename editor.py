@@ -704,7 +704,54 @@ async function api(path, opts) {
   return r.json();
 }
 
-// ── Aperiodic tiling (de Bruijn multigrid) ───────────────────────────────────
+// ── Aperiodic tiling (Penrose via Robinson triangle subdivision) ──────────────
+const _PHI = (1 + Math.sqrt(5)) / 2;
+
+function _penroseSubdivide(triangles) {
+  const result = [];
+  for (const [type, ax, ay, bx, by, cx, cy] of triangles) {
+    if (type === 0) {
+      const px = ax + (bx - ax) / _PHI, py = ay + (by - ay) / _PHI;
+      result.push([0, cx, cy, px, py, bx, by]);
+      result.push([1, px, py, cx, cy, ax, ay]);
+    } else {
+      const qx = bx + (ax - bx) / _PHI, qy = by + (ay - by) / _PHI;
+      const rx = bx + (cx - bx) / _PHI, ry = by + (cy - by) / _PHI;
+      result.push([1, rx, ry, cx, cy, ax, ay]);
+      result.push([1, qx, qy, rx, ry, bx, by]);
+      result.push([0, rx, ry, qx, qy, ax, ay]);
+    }
+  }
+  return result;
+}
+
+function _pairRhombi(triangles) {
+  const edgeMap = new Map();
+  const paired = new Set();
+  const rhombi = [];
+  function ek(x1, y1, x2, y2) {
+    const a = x1.toFixed(4)+','+y1.toFixed(4), b = x2.toFixed(4)+','+y2.toFixed(4);
+    return a < b ? a+'|'+b : b+'|'+a;
+  }
+  for (let i = 0; i < triangles.length; i++) {
+    const [type, ax, ay, bx, by, cx, cy] = triangles[i];
+    const key = ek(bx, by, cx, cy);
+    if (edgeMap.has(key)) {
+      const j = edgeMap.get(key);
+      const [, ax2, ay2] = triangles[j];
+      rhombi.push({type, verts:[[ax,ay],[bx,by],[ax2,ay2],[cx,cy]], idx:rhombi.length});
+      paired.add(i); paired.add(j);
+    } else { edgeMap.set(key, i); }
+  }
+  for (let i = 0; i < triangles.length; i++) {
+    if (!paired.has(i)) {
+      const [type, ax, ay, bx, by, cx, cy] = triangles[i];
+      rhombi.push({type, verts:[[ax,ay],[bx,by],[cx,cy]], idx:rhombi.length, unpaired:true});
+    }
+  }
+  return rhombi;
+}
+
 function renderTiling() {
   const canvas = document.getElementById('tilingCanvas');
   if (!canvas) return;
@@ -721,79 +768,40 @@ function renderTiling() {
   const W = canvas.width;
   const H = canvas.height;
 
-  const N = 5;
-  // Offsets must not sum to integer for proper aperiodic tiling
-  const offsets = Array.from({length: N}, () => Math.random());
-  const gridSize = 20;
-  const scale = W / 25;
-  const angles = Array.from({length: N}, (_, i) => i * Math.PI / N);
-  const cosA = angles.map(a => Math.cos(a));
-  const sinA = angles.map(a => Math.sin(a));
-  const globalRotation = Math.random() * Math.PI * 2;
-
-  // De Bruijn dual: for each intersection, compute dual vertices using ALL families
-  function dualVertex(ks) {
-    let x = 0, y = 0;
-    for (let m = 0; m < N; m++) { x += ks[m] * cosA[m]; y += ks[m] * sinA[m]; }
-    return [x, y];
+  // Generate triangles
+  const rot = Math.random() * Math.PI * 2;
+  const R = Math.max(W, H) * 2;
+  let triangles = [];
+  for (let i = 0; i < 10; i++) {
+    const a1 = rot + (2*i-1) * Math.PI/10, a2 = rot + (2*i+1) * Math.PI/10;
+    const bx = R*Math.cos(a1), by = R*Math.sin(a1);
+    const cx = R*Math.cos(a2), cy = R*Math.sin(a2);
+    triangles.push(i%2===0 ? [0,0,0,cx,cy,bx,by] : [0,0,0,bx,by,cx,cy]);
   }
+  for (let s = 0; s < 6; s++) triangles = _penroseSubdivide(triangles);
 
-  const tiles = [];
-  const seen = new Set();
-  for (let i = 0; i < N; i++) {
-    for (let j = i + 1; j < N; j++) {
-      const det = cosA[i] * sinA[j] - cosA[j] * sinA[i];
-      if (Math.abs(det) < 1e-10) continue;
-      for (let ki = -gridSize; ki <= gridSize; ki++) {
-        for (let kj = -gridSize; kj <= gridSize; kj++) {
-          const oi = ki + offsets[i], oj = kj + offsets[j];
-          const x = (oi * sinA[j] - oj * sinA[i]) / det;
-          const y = (oj * cosA[i] - oi * cosA[j]) / det;
-          // Compute k index for each family at this intersection
-          const ks = [];
-          for (let m = 0; m < N; m++) {
-            ks[m] = Math.floor(x * cosA[m] + y * sinA[m] + offsets[m]);
-          }
-          // Exact values for the intersecting families
-          ks[i] = ki; ks[j] = kj;
-          // Deduplicate tiles by their k-vector
-          const key = ks.join(',');
-          if (seen.has(key)) continue;
-          seen.add(key);
-          // Build rhombus: 4 dual vertices by toggling k_i and k_j
-          const v00 = dualVertex(ks);
-          ks[i]++; const v10 = dualVertex(ks);
-          ks[j]++; const v11 = dualVertex(ks);
-          ks[i]--; const v01 = dualVertex(ks);
-          ks[j]--; // restore
-          tiles.push([v00, v10, v11, v01]);
-        }
-      }
-    }
-  }
+  // Pair into rhombi and pick colouring mode
+  const rhombi = _pairRhombi(triangles);
+  const colorMode = Math.random() < 0.5 ? 'alt' : 'type';
 
   const style = getComputedStyle(document.documentElement);
   const accent = style.getPropertyValue('--accent').trim() || '#5b9bd5';
-  const bg2 = style.getPropertyValue('--bg2').trim() || '#1a1a1a';
+  const bg3 = style.getPropertyValue('--bg3').trim() || '#222';
   const border = style.getPropertyValue('--border').trim() || '#333';
 
   ctx.clearRect(0, 0, W, H);
   ctx.save();
-  ctx.translate(W / 2, H / 2);
-  ctx.rotate(globalRotation);
-  ctx.scale(scale, scale);
+  ctx.translate(W/2, H/2);
 
-  for (const tile of tiles) {
-    const area = Math.abs(
-      (tile[1][0] - tile[0][0]) * (tile[2][1] - tile[0][1]) -
-      (tile[2][0] - tile[0][0]) * (tile[1][1] - tile[0][1])
-    );
-    ctx.fillStyle = area > 0.6 ? accent : bg2;
+  for (const r of rhombi) {
+    ctx.fillStyle = colorMode === 'alt'
+      ? (r.idx % 2 === 0 ? accent : bg3)
+      : (r.type === 0 ? accent : bg3);
     ctx.strokeStyle = border;
-    ctx.lineWidth = 0.03;
+    ctx.lineWidth = 0.5;
     ctx.beginPath();
-    ctx.moveTo(tile[0][0], tile[0][1]);
-    for (let k = 1; k < 4; k++) ctx.lineTo(tile[k][0], tile[k][1]);
+    ctx.moveTo(r.verts[0][0], r.verts[0][1]);
+    for (let k = 1; k < r.verts.length; k++) ctx.lineTo(r.verts[k][0], r.verts[k][1]);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
