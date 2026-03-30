@@ -72,12 +72,12 @@ jobs:
       - name: Install webkit2gtk
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
 
       - name: Build binary
         run: |
           VERSION="${GITHUB_REF_NAME}"
-          go build -tags "desktop,production" \
+          go build -tags "desktop,production,webkit2_41" \
             -ldflags "-s -w -X main.version=$VERSION" \
             -o build/Bacalhau .
 
