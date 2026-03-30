@@ -197,11 +197,7 @@ async function loadTree() {
   const pn = document.getElementById('projectName');
   if (pn) pn.textContent = data.project || '';
   const welcome = document.getElementById('welcomeOverlay');
-  if (tree.length === 0) {
-    welcome.style.display = 'flex';
-  } else {
-    welcome.style.display = 'none';
-  }
+  welcome.style.display = 'none';  // Disabled — doesn't work in Wails webview
   renderTree();
   await buildEditor();
   renderPreview();
@@ -215,7 +211,8 @@ function renderTree() {
   // Assign scene numbers before rendering
   let sceneNum = 0;
   assignSceneNumbers(tree, n => ++sceneNum);
-  container.appendChild(buildTreeUL(tree, ''));
+  const ul = buildTreeUL(tree, '');
+  container.appendChild(ul);
 }
 
 function assignSceneNumbers(nodes, nextNum) {
@@ -259,13 +256,6 @@ function makeInsertZone(parentPath, position) {
 
 function buildTreeUL(nodes, parentPath) {
   const ul = document.createElement('ul');
-  // When tree is empty, show the insert zone persistently
-  if (nodes.length === 0 && parentPath === '') {
-    const zone = makeInsertZone(parentPath, 0);
-    zone.classList.add('insert-zone-empty');
-    ul.appendChild(zone);
-    return ul;
-  }
   nodes.forEach((node, i) => {
     // Insert zone before each item
     ul.appendChild(makeInsertZone(parentPath, i));
@@ -668,8 +658,6 @@ function switchPanel(panel) {
   currentPanel = panel;
   document.getElementById('tree').style.display = panel === 'files' ? '' : 'none';
   document.getElementById('gitPanel').style.display = panel === 'git' ? '' : 'none';
-  document.getElementById('addFileBtn').style.display = panel === 'files' ? '' : 'none';
-  document.getElementById('addDirBtn').style.display = panel === 'files' ? '' : 'none';
   document.querySelectorAll('.sidebar-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.panel === panel);
   });

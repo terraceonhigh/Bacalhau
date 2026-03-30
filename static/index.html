@@ -23,15 +23,16 @@
   <div class="sidebar-tabs">
     <button class="sidebar-tab active" data-panel="files" onclick="switchPanel('files')">Files</button>
     <button class="sidebar-tab" data-panel="git" onclick="switchPanel('git')">Git <span id="gitBadge" class="tab-badge" style="display:none"></span></button>
-    <span class="sidebar-tabs-spacer"></span>
-    <button class="sidebar-add-btn" id="addFileBtn" onclick="newFile('')" title="New file">+ file</button>
-    <button class="sidebar-add-btn" id="addDirBtn" onclick="newDir('')" title="New folder">+ folder</button>
   </div>
   <div class="tree" id="tree"></div>
   <div class="git-panel" id="gitPanel" style="display:none">
     <div id="gitContent"></div>
   </div>
   <div class="sidebar-footer">
+    <div class="sidebar-add-row">
+      <button class="sidebar-add-btn" onclick="newFile('')">+ file</button>
+      <button class="sidebar-add-btn" onclick="newDir('')">+ folder</button>
+    </div>
     <input type="file" id="openInput" accept=".bacalhau" style="display:none" onchange="handleOpenFile(this)">
     <input type="file" id="themeInput" accept=".css" style="display:none" onchange="handleImportTheme(this)">
     <select id="openSelect" onchange="handleOpen(this.value); this.value='';" style="width:100%;padding:6px 14px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;cursor:pointer;">
