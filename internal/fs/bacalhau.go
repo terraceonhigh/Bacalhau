@@ -17,21 +17,12 @@ func Extract(zipPath, destDir string) error {
 	}
 	defer r.Close()
 
-	realDest, err := filepath.EvalSymlinks(destDir)
-	if err != nil {
-		realDest = destDir
-	}
+	cleanDest := filepath.Clean(destDir)
 
 	// Zip-slip protection: verify every member resolves inside destDir.
 	for _, f := range r.File {
-		target := filepath.Join(destDir, f.Name)
-		realTarget, err := filepath.EvalSymlinks(filepath.Dir(target))
-		if err != nil {
-			// Parent dir may not exist yet; use Clean instead.
-			realTarget = filepath.Clean(filepath.Dir(target))
-		}
-		resolvedTarget := filepath.Join(realTarget, filepath.Base(target))
-		if !strings.HasPrefix(resolvedTarget, realDest+string(os.PathSeparator)) && resolvedTarget != realDest {
+		target := filepath.Clean(filepath.Join(destDir, f.Name))
+		if !strings.HasPrefix(target, cleanDest+string(os.PathSeparator)) && target != cleanDest {
 			return fmt.Errorf("unsafe path in archive: %s", f.Name)
 		}
 	}

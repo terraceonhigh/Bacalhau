@@ -53,7 +53,7 @@ func (s *Server) openProject(w http.ResponseWriter, r *http.Request) {
 
 	if err := bfs.Extract(tmpFile, newTemp); err != nil {
 		os.RemoveAll(newTemp)
-		sendJSON(w, http.StatusBadRequest, map[string]any{"error": "Not a valid .bacalhau file"})
+		sendJSON(w, http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("Not a valid .bacalhau file: %v", err)})
 		return
 	}
 	os.Remove(tmpFile) //nolint:errcheck
