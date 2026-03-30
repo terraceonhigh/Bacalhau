@@ -4,7 +4,7 @@
 
 # Bacalhau
 
-A browser-based markdown manuscript editor for long-form writing projects. One Python file, no pip packages.
+A native desktop manuscript editor for long-form writing projects. Single Go binary, no dependencies.
 
 ---
 
@@ -18,7 +18,7 @@ Three-pane layout for editing hierarchical markdown:
 - **Editor:** Continuous scroll with per-file auto-save, live preview, and seamless arrow-key navigation across files
 - **Preview:** Full manuscript with auto-numbered scene headings and scroll sync
 - **Git panel:** Stage, unstage, commit, and restore from history — no terminal required
-- **Folder browser:** Open any directory from the web UI without touching a terminal
+- **Folder browser:** Open any directory from the UI without touching a terminal
 
 Projects are stored as plain markdown files on disk, organized in directories with `_order.yaml` for ordering.
 
@@ -29,32 +29,21 @@ Projects are stored as plain markdown files on disk, organized in directories wi
 Download from [Releases](https://github.com/terraceonhigh/Bacalhau/releases):
 
 - **macOS:** `Bacalhau-...-macos.zip` (contains `Bacalhau.app`)
-- **Linux:** `Bacalhau-...-x86_64.AppImage`
 
-Double-click to launch. On macOS, first launch requires right-click → Open (unsigned). On Linux, `chmod +x` the AppImage first.
+Double-click to launch. On first launch, right-click → Open (unsigned).
 
 ### Command line
 
 ```bash
-python3 editor.py <project-directory>
-python3 editor.py project.bacalhau        # open a .bacalhau file
-python3 editor.py --port 8080             # custom port
-python3 editor.py                         # no args — shows welcome screen
+./Bacalhau <project-directory>
+./Bacalhau project.bacalhau        # open a .bacalhau file
+./Bacalhau                         # no args — shows welcome screen
 ```
-
-### Portable launchers
-
-Included in `portable/` for use without the native app:
-
-- **macOS:** `Bacalhau.command` (double-click in Finder)
-- **Linux:** `Bacalhau` (shell script) or `Bacalhau.desktop`
 
 ## Requirements
 
-- **Python 3.6+**
-- **A web browser** — Chrome, Firefox, Safari, Edge, et cetera.
-
-PDF export is built in — no external tools required.
+- **macOS 10.13+** or **Linux** with a display server
+- **Go 1.22+** (build only — the compiled binary has no runtime dependencies)
 
 ## Project structure
 
@@ -90,29 +79,24 @@ Optional heading file inside a directory. Rendered before the directory's other 
 
 ### From the editor (Save As menu)
 
-- **Save .bacalhau** — portable project file (ZIP with custom extension, bundles `chapters/` and `latex/`)
+- **Save .bacalhau** — portable project file (ZIP with custom extension, bundles `chapters/` and `.git/`)
 - **Save .zip** — raw `chapters/` directory as a zip
 - **Save .md** — assembled manuscript with scene numbers
-- **Save .pdf** — pure Python, no external tools
+- **Save .pdf** — rendered PDF
 
-### From the command line
-
-```bash
-python3 assemble.py chapters/ --concat -o manuscript.md
-python3 assemble.py chapters/ --pdf    -o manuscript.pdf
-```
+All save/export operations use native file dialogs.
 
 ### Opening .bacalhau files
 
 ```bash
-python3 editor.py project.bacalhau
+./Bacalhau project.bacalhau
 ```
 
 Or use Cmd+O / the Open button in the sidebar. The file is extracted to a temp directory; edits are saved back on close.
 
 ### Browsing folders
 
-Click **Browse** in the sidebar footer (or **Browse Folder** on the welcome screen) to open a visual directory navigator. Browse your home directory, click into folders, and select one to open — no path typing required. Folders containing markdown files are highlighted with a count badge.
+Click **Open Folder** in the sidebar footer to open a visual directory navigator. Browse your home directory, click into folders, and select one to open. Folders containing markdown files are highlighted with a count badge.
 
 ## Themes
 
@@ -125,36 +109,41 @@ To add a custom theme, choose "Import theme..." from the dropdown and select a `
 
 Themes override CSS custom properties (`--bg`, `--accent`, etc.). See `DESIGN.md` for the full variable list.
 
+## Building
+
+```bash
+# Development (quick, no .app bundle)
+CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags "desktop,production" -o Bacalhau .
+
+# macOS .app with icon
+./build-app.sh v3.0
+```
+
+| Tool | Platform | Purpose |
+|------|----------|---------|
+| Go 1.22+ | All | Compilation |
+| `sips`, `iconutil` | macOS (built-in) | Icon conversion for .app bundle |
+
 ## Files
 
 | Path | Description |
 |------|-------------|
-| `editor.py` | The editor — HTTP server, browser UI, all file APIs |
-| `assemble.py` | CLI tool — concatenates chapters into markdown/PDF |
-| `vendor/` | Vendored pure-Python libs (pdfme, mistletoe) for PDF export |
+| `main.go` | Entry point — Wails app lifecycle, native file dialogs |
+| `internal/server/` | HTTP handler — all API routes |
+| `internal/fs/` | Filesystem ops — .bacalhau ZIP, `_order.yaml`, tree building |
+| `internal/git/` | Git operations — shells out to `git` |
+| `internal/state/` | Shared mutable state |
+| `internal/themes/` | Theme CSS management |
+| `static/` | Frontend SPA — HTML, CSS, JavaScript |
+| `vendor_js/` | Vendored JS (markdown-it) |
 | `themes/` | Bundled CSS themes |
 | `demo/` | Sample project — *The Salted Page* |
 | `icons/` | Icon assets and generator script |
-| `portable/` | Portable launchers for use without native packaging |
-| `packaging/` | Platform-specific launcher scripts and Info.plist template |
-| `build.sh` | Builds `.app` (macOS) and `.AppDir`/`.AppImage` (Linux) |
-| `release.sh` | Runs `build.sh`, packages release zips |
+| `packaging/` | macOS Info.plist template |
+| `build-app.sh` | Builds `Bacalhau.app` for macOS |
 | `DESIGN.md` | UI specification |
+| `ARCHITECTURE.md` | API and module contracts |
 | `CREDITS.md` | Icon attribution |
-
-## Building
-
-Only needed for producing native packages.
-
-| Tool | Platform | Purpose |
-|------|----------|---------|
-| `sips`, `iconutil` | macOS (built-in) | Icon conversion |
-| `appimagetool` | Linux | AppImage packaging |
-
-```bash
-./build.sh v1.0.0
-./release.sh v1.0.0
-```
 
 ## Version control
 
@@ -176,7 +165,7 @@ Requires `git` to be installed on the system. The panel degrades gracefully if i
 A sample novella, *The Salted Page*, is included in `demo/chapters/` with two parts (Past and Present) to demonstrate the editor's hierarchical structure:
 
 ```bash
-python3 editor.py demo/chapters
+./Bacalhau demo/chapters
 ```
 
 ## Known limitations
@@ -185,5 +174,4 @@ python3 editor.py demo/chapters
 - The editor uses `<textarea>` — no syntax highlighting.
 - Scroll sync is proportional, not line-exact. Drift increases toward the edges of long files.
 - Unsigned on macOS. First launch requires right-click → Open.
-- The AppImage requires system Python 3.
 - The folder browser is restricted to your home directory for security.
