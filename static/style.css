@@ -212,14 +212,21 @@ button.primary:hover { opacity: 0.85; }
 
 /* ── Sidebar Tabs ── */
 .sidebar-tabs {
-  display: flex; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .sidebar-tab {
-  flex: 1; padding: 8px 0; border: none; border-bottom: 2px solid transparent;
+  padding: 8px 12px; border: none; border-bottom: 2px solid transparent;
   background: transparent; color: var(--fg3); font-size: 12px;
   cursor: pointer; text-align: center; width: auto;
 }
+.sidebar-tabs-spacer { flex: 1; }
+.sidebar-add-btn {
+  padding: 2px 8px; margin-right: 4px; border: 1px solid var(--border);
+  border-radius: 3px; background: transparent; color: var(--fg3);
+  font-size: 10px; cursor: pointer; white-space: nowrap;
+}
+.sidebar-add-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 .sidebar-tab:hover { color: var(--fg2); background: transparent; }
 .sidebar-tab.active { color: var(--fg); border-bottom-color: var(--accent); }
 .tab-badge {

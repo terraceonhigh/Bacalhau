@@ -23,6 +23,9 @@
   <div class="sidebar-tabs">
     <button class="sidebar-tab active" data-panel="files" onclick="switchPanel('files')">Files</button>
     <button class="sidebar-tab" data-panel="git" onclick="switchPanel('git')">Git <span id="gitBadge" class="tab-badge" style="display:none"></span></button>
+    <span class="sidebar-tabs-spacer"></span>
+    <button class="sidebar-add-btn" id="addFileBtn" onclick="newFile('')" title="New file">+ file</button>
+    <button class="sidebar-add-btn" id="addDirBtn" onclick="newDir('')" title="New folder">+ folder</button>
   </div>
   <div class="tree" id="tree"></div>
   <div class="git-panel" id="gitPanel" style="display:none">

@@ -8,6 +8,26 @@ let currentPanel = 'files';
 let gitState = null;
 let gitLog = [];
 
+// ── Confirm dialog (works in Wails webview where window.confirm may not) ─────
+function bcConfirm(msg) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:99999';
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:20px;max-width:400px;box-shadow:0 4px 20px rgba(0,0,0,0.3)';
+    card.innerHTML = '<p style="color:var(--fg);margin:0 0 16px;font-size:13px;">' + msg.replace(/</g,'&lt;') + '</p>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+      + '<button id="bcConfirmNo" style="padding:6px 16px;cursor:pointer">Cancel</button>'
+      + '<button id="bcConfirmYes" style="padding:6px 16px;cursor:pointer;font-weight:bold">OK</button></div>';
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    const cleanup = (val) => { document.body.removeChild(overlay); resolve(val); };
+    card.querySelector('#bcConfirmYes').onclick = () => cleanup(true);
+    card.querySelector('#bcConfirmNo').onclick = () => cleanup(false);
+    overlay.onclick = (e) => { if (e.target === overlay) cleanup(false); };
+  });
+}
+
 // ── API ──────────────────────────────────────────────────────────────────────
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -641,6 +661,8 @@ function switchPanel(panel) {
   currentPanel = panel;
   document.getElementById('tree').style.display = panel === 'files' ? '' : 'none';
   document.getElementById('gitPanel').style.display = panel === 'git' ? '' : 'none';
+  document.getElementById('addFileBtn').style.display = panel === 'files' ? '' : 'none';
+  document.getElementById('addDirBtn').style.display = panel === 'files' ? '' : 'none';
   document.querySelectorAll('.sidebar-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.panel === panel);
   });
@@ -751,7 +773,7 @@ function renderGitPanel() {
 }
 
 async function gitRestore(sha) {
-  if (!confirm('Restore your manuscript to this version? Your current text will be saved as a new checkpoint first.')) return;
+  if (!await bcConfirm('Restore your manuscript to this version? Your current text will be saved as a new checkpoint first.')) return;
   // Save any dirty files first
   await saveFile();
   // Stage and commit current state if there are changes
@@ -900,7 +922,7 @@ async function copyFile(path) {
 }
 
 async function removeFile(path) {
-  if (!confirm('Delete ' + path + '?')) return;
+  if (!await bcConfirm('Delete ' + path + '?')) return;
   const data = await api('/api/chapter/' + encodeURI(path), {method:'DELETE'});
   if (data.error) { setStatus(data.error); return; }
   setStatus(data.message);
@@ -917,7 +939,7 @@ async function copyDir(path) {
 }
 
 async function removeDir(path) {
-  if (!confirm('Delete folder ' + path + ' and all contents?')) return;
+  if (!await bcConfirm('Delete folder ' + path + ' and all contents?')) return;
   const data = await api('/api/dir/' + encodeURI(path), {method:'DELETE'});
   if (data.error) { setStatus(data.error); return; }
   setStatus(data.message);
@@ -1127,7 +1149,7 @@ function renderBrowse() {
 
 async function browseOpenHere() {
   if (!browsePath) return;
-  if (browseData && browseData.mdCount === 0 && !confirm('This folder has no markdown files. Open anyway?')) return;
+  if (browseData && browseData.mdCount === 0 && !await bcConfirm('This folder has no markdown files. Open anyway?')) return;
   setStatus('Opening folder\u2026');
   try {
     const r = await api('/api/open/folder', {
