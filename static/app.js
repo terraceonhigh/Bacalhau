@@ -14,6 +14,28 @@ async function api(path, opts) {
   return r.json();
 }
 
+// Native file save — uses Wails dialog if available, otherwise browser download.
+async function nativeSave(blob, filename, filterDesc, filterPattern) {
+  if (window.go && window.go.main && window.go.main.app && window.go.main.app.SaveToFile) {
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const b64 = btoa(binary);
+    const path = await window.go.main.app.SaveToFile(filename, filterDesc, filterPattern, b64);
+    if (!path) return null; // cancelled
+    return path;
+  }
+  // Browser fallback
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  return filename;
+}
+
 // ── Header menu ──────────────────────────────────────────────────────────────
 function toggleHeaderMenu() {
   const menu = document.getElementById('headerMenu');
@@ -929,53 +951,18 @@ async function saveBacalhau() {
     }
     const ct = r.headers.get('Content-Type') || '';
     if (ct.includes('application/json')) {
+      // In-place save (opened from a .bacalhau file on disk)
       const data = await r.json();
       setStatus('Saved to ' + (data.path || '.bacalhau'));
     } else {
       const blob = await r.blob();
-      // Try to overwrite the original file via File System Access API
-      if (_bacalhauFileHandle) {
-        try {
-          const writable = await _bacalhauFileHandle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          setStatus('Saved ' + _bacalhauFileHandle.name);
-          return;
-        } catch(e) {
-          // Permission revoked or API error — fall through to download
-        }
-      }
-      // Try showSaveFilePicker for a native save dialog
-      if (window.showSaveFilePicker) {
-        try {
-          const disp = r.headers.get('Content-Disposition') || '';
-          const match = disp.match(/filename="?([^"]+)"?/);
-          const suggestedName = match ? match[1] : 'project.bacalhau';
-          const handle = await window.showSaveFilePicker({
-            suggestedName,
-            types: [{description: 'Bacalhau project', accept: {'application/octet-stream': ['.bacalhau']}}]
-          });
-          const writable = await handle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          _bacalhauFileHandle = handle;
-          setStatus('Saved ' + handle.name);
-          return;
-        } catch(e) {
-          if (e.name === 'AbortError') { setStatus('Save cancelled'); return; }
-          // Fall through to legacy download
-        }
-      }
-      // Legacy fallback: browser download
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
       const disp = r.headers.get('Content-Disposition') || '';
       const match = disp.match(/filename="?([^"]+)"?/);
-      a.download = match ? match[1] : 'project.bacalhau';
-      a.click();
-      URL.revokeObjectURL(url);
-      setStatus('Downloaded ' + a.download);
+      const suggestedName = match ? match[1] : 'project.bacalhau';
+
+      const result = await nativeSave(blob, suggestedName, 'Bacalhau Projects', '*.bacalhau');
+      if (!result) { setStatus('Save cancelled'); return; }
+      setStatus('Saved to ' + result);
     }
   } catch(e) {
     setStatus('Save failed');
@@ -984,7 +971,29 @@ async function saveBacalhau() {
 
 async function handleOpen(value) {
   if (value === 'bacalhau') {
-    // Try File System Access API first — gives us a handle for overwriting later
+    // Try Wails native file dialog first (desktop app)
+    if (window.go && window.go.main && window.go.main.app && window.go.main.app.OpenFile) {
+      try {
+        const result = await window.go.main.app.OpenFile();
+        if (!result) return;  // cancelled
+        setStatus('Opening ' + result.filename + '…');
+        const r = await fetch('/api/open', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({filename: result.filename, data: result.data})
+        });
+        const data = await r.json();
+        if (data.error) { setStatus(data.error); return; }
+        document.getElementById('welcomeOverlay').style.display = 'none';
+        await loadTree();
+        setStatus('Opened ' + result.filename);
+        return;
+      } catch(e) {
+        console.error('Wails OpenFile failed:', e);
+        // Fall through to browser methods
+      }
+    }
+    // Try File System Access API (Chrome/Edge)
     if (window.showOpenFilePicker) {
       try {
         const [handle] = await window.showOpenFilePicker({
@@ -1140,26 +1149,18 @@ async function saveProject() {
   setStatus('Saving...');
   const r = await fetch('/api/save/zip');
   const blob = await r.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'bone-china-chapters.zip';
-  a.click();
-  URL.revokeObjectURL(url);
-  setStatus('Downloaded bone-china-chapters.zip');
+  const result = await nativeSave(blob, 'chapters.zip', 'ZIP Archive', '*.zip');
+  if (!result) { setStatus('Save cancelled'); return; }
+  setStatus('Saved to ' + result);
 }
 
 async function exportMarkdown() {
   setStatus('Generating...');
   const r = await fetch('/api/export/markdown');
   const blob = await r.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'bone-china.md';
-  a.click();
-  URL.revokeObjectURL(url);
-  setStatus('Downloaded bone-china.md');
+  const result = await nativeSave(blob, 'manuscript.md', 'Markdown', '*.md');
+  if (!result) { setStatus('Save cancelled'); return; }
+  setStatus('Saved to ' + result);
 }
 
 async function exportPDF() {
@@ -1172,13 +1173,9 @@ async function exportPDF() {
       return;
     }
     const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'bone-china.pdf';
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatus('Downloaded bone-china.pdf');
+    const result = await nativeSave(blob, 'manuscript.pdf', 'PDF Document', '*.pdf');
+    if (!result) { setStatus('Save cancelled'); return; }
+    setStatus('Saved to ' + result);
   } catch(e) {
     setStatus('PDF export failed');
   }
@@ -1356,7 +1353,7 @@ function updateWordCount() {
 
 document.addEventListener('keydown', e => {
   if ((e.metaKey||e.ctrlKey) && e.key === 's') { e.preventDefault(); saveFile(); }
-  if ((e.metaKey||e.ctrlKey) && e.key === 'o') { e.preventDefault(); document.getElementById('openInput').click(); }
+  if ((e.metaKey||e.ctrlKey) && e.key === 'o') { e.preventDefault(); handleOpen('bacalhau'); }
 });
 
 // ── Themes ───────────────────────────────────────────────────────────────────
