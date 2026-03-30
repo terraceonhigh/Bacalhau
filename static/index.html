@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bacalhau</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="/static/style.css">
+<link id="theme-css" rel="stylesheet" href="">
+<script src="/vendor/markdown-it.min.js"></script>
+</head>
+<body>
+<div class="sidebar">
+  <div class="sidebar-header">
+    <canvas id="tilingCanvas"></canvas>
+    <div class="sidebar-header-content">
+      <img src="/favicon.png" alt="">
+      <div>
+        <h1>Bacalhau</h1>
+        <p id="projectName"></p>
+      </div>
+    </div>
+  </div>
+  <div class="sidebar-tabs">
+    <button class="sidebar-tab active" data-panel="files" onclick="switchPanel('files')">Files</button>
+    <button class="sidebar-tab" data-panel="git" onclick="switchPanel('git')">Git <span id="gitBadge" class="tab-badge" style="display:none"></span></button>
+  </div>
+  <div class="tree" id="tree"></div>
+  <div class="git-panel" id="gitPanel" style="display:none">
+    <div id="gitContent"></div>
+  </div>
+  <div class="sidebar-footer">
+    <input type="file" id="openInput" accept=".bacalhau" style="display:none" onchange="handleOpenFile(this)">
+    <input type="file" id="themeInput" accept=".css" style="display:none" onchange="handleImportTheme(this)">
+    <select id="openSelect" onchange="handleOpen(this.value); this.value='';" style="width:100%;padding:6px 14px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;cursor:pointer;">
+      <option value="" disabled selected>Open…</option>
+      <option value="bacalhau">.bacalhau file</option>
+      <option value="folder">Folder</option>
+    </select>
+    <select id="themeSelect" onchange="switchTheme(this.value)" style="width:100%;padding:5px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;">
+      <option value="">No theme</option>
+    </select>
+    <select id="saveAs" onchange="handleSaveAs(this.value); this.value='';" style="width:100%;padding:6px 14px;background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:3px;font-size:12px;cursor:pointer;">
+      <option value="" disabled selected>Save As…</option>
+      <option value="bacalhau">.bacalhau</option>
+      <option value="zip">.zip</option>
+      <option value="md">.md</option>
+      <option value="pdf">.pdf</option>
+    </select>
+    <div class="word-count" id="wordCount"></div>
+    <div class="status" id="status"></div>
+  </div>
+</div>
+
+<div class="editor-pane" id="editorPane">
+  <div class="editor-scroll" id="editorScroll"></div>
+</div>
+
+<div id="welcomeOverlay" class="welcome-overlay" style="display:none">
+  <div class="welcome-card">
+    <h2 style="color:var(--fg);margin:0 0 8px;font-size:22px;">Bacalhau</h2>
+    <p style="color:var(--fg2);margin:0 0 20px;font-size:13px;">Open a manuscript to get started.</p>
+    <button style="margin:4px;padding:10px 24px;" onclick="document.getElementById('openInput').click()">Open .bacalhau</button>
+    <button style="margin:4px;padding:10px 24px;" onclick="openBrowse()">Open Folder</button>
+    <button style="margin:4px;padding:10px 24px;" onclick="document.getElementById('welcomeOverlay').style.display='none';newFile('')">New Project</button>
+  </div>
+</div>
+
+<div id="browseOverlay" class="browse-overlay" style="display:none">
+  <div class="browse-modal">
+    <div class="browse-header">
+      <span class="browse-title">Open Folder</span>
+      <button class="browse-close" onclick="closeBrowse()">&times;</button>
+    </div>
+    <div class="browse-breadcrumb" id="browseBreadcrumb"></div>
+    <div class="browse-list" id="browseList"></div>
+    <div class="browse-footer">
+      <div class="browse-hint" id="browseFooterHint"></div>
+      <div class="browse-actions">
+        <button onclick="closeBrowse()">Cancel</button>
+        <button class="primary" onclick="browseOpenHere()">Open Here</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="sync-bar">
+  <button class="sync-btn" title="Scroll preview to current chapter" onclick="syncEditorToPreview()">&#x25B6;</button>
+  <button class="sync-btn toggle" id="syncToggle" title="Toggle linked scrolling" onclick="toggleSync()">
+    <span id="syncIcon">&#x1F517;</span>
+  </button>
+  <button class="sync-btn" title="Load visible chapter in editor" onclick="syncPreviewToEditor()">&#x25C0;</button>
+</div>
+
+<div class="preview-pane" id="previewPane">
+  <div class="preview-content" id="preview"></div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
