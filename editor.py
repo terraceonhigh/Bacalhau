@@ -24,6 +24,11 @@ import sys
 import threading
 import time
 
+# Ensure sibling modules are importable regardless of cwd
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+if _script_dir not in sys.path:
+    sys.path.insert(0, _script_dir)
+
 import state
 from server import Handler
 from helpers import _repack_bacalhau, _open_app_window
