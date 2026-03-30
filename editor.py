@@ -459,6 +459,17 @@ button.primary:hover { opacity: 0.85; }
 .preview-content em { font-style: italic; }
 .preview-content strong { font-weight: 700; }
 .preview-content code { font-family: monospace; background: var(--bg3); padding: 1px 4px; border-radius: 2px; font-size: 0.9em; }
+.preview-content pre { background: var(--bg3); padding: 12px 16px; border-radius: 4px; overflow-x: auto; margin: 1em 0; }
+.preview-content pre code { background: none; padding: 0; font-size: 0.85em; }
+.preview-content ul, .preview-content ol { margin: 1em 0; padding-left: 2em; }
+.preview-content li { margin: 0.3em 0; }
+.preview-content blockquote { margin: 1.5em 0; padding-left: 1em; border-left: 3px solid var(--border); color: var(--fg2); font-style: italic; }
+.preview-content a { color: var(--accent); text-decoration: none; }
+.preview-content a:hover { text-decoration: underline; }
+.preview-content table { border-collapse: collapse; margin: 1em 0; width: 100%; }
+.preview-content th, .preview-content td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.preview-content th { background: var(--bg3); font-weight: 600; }
+.preview-content img { max-width: 100%; }
 .preview-content .chapter-anchor { display: block; position: relative; top: -20px; }
 
 /* ── Sidebar Tabs ── */
@@ -598,6 +609,7 @@ button.primary:hover { opacity: 0.85; }
 .browse-actions { display: flex; gap: 6px; }
 </style>
 <link id="theme-css" rel="stylesheet" href="">
+<script src="/vendor/markdown-it.min.js"></script>
 </head>
 <body>
 
@@ -814,25 +826,9 @@ function renderTiling() {
   ctx.restore();
 }
 
-// ── Markdown parser ──────────────────────────────────────────────────────────
-function md(text) {
-  let html = '';
-  for (let block of text.split(/\\n{2,}/)) {
-    block = block.trim();
-    if (!block) continue;
-    const hm = block.match(/^(#{1,6})\\s+(.+)$/);
-    if (hm) { html += '<h'+hm[1].length+'>'+inline(hm[2])+'</h'+hm[1].length+'>\\n'; continue; }
-    if (/^---+$/.test(block)||/^\\*\\*\\*+$/.test(block)) { html += '<hr>\\n'; continue; }
-    html += '<p>'+inline(block.replace(/\\n/g,' '))+'</p>\\n';
-  }
-  return html;
-}
-function inline(t) {
-  t = t.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>');
-  t = t.replace(/\\*(.+?)\\*/g,'<em>$1</em>');
-  t = t.replace(/`([^`]+?)`/g,'<code>$1</code>');
-  return t;
-}
+// ── Markdown parser (markdown-it) ────────────────────────────────────────────
+const _md = window.markdownit({ html: false, linkify: true, typographer: true });
+function md(text) { return _md.render(text); }
 
 // ── Tree rendering ───────────────────────────────────────────────────────────
 async function loadTree() {
@@ -2163,6 +2159,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.serve_html()
         elif self.path == "/favicon.png":
             self.serve_favicon()
+        elif self.path.startswith("/vendor/"):
+            self.serve_vendor_file()
         elif self.path == "/api/tree":
             self.serve_tree()
         elif self.path.startswith("/api/chapter/"):
@@ -2271,6 +2269,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
+
+    def serve_vendor_file(self):
+        name = self.path.split("/vendor/", 1)[1]
+        name = urllib.parse.unquote(name)
+        if "/" in name or name.startswith("."):
+            self.send_json(400, {"error": "Invalid path"})
+            return
+        vendor_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor")
+        filepath = os.path.join(vendor_dir, name)
+        if not os.path.isfile(filepath):
+            self.send_json(404, {"error": "Not found"})
+            return
+        ct = "application/javascript" if name.endswith(".js") else "application/octet-stream"
+        with open(filepath, "rb") as f:
+            data = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "max-age=86400")
+        self.end_headers()
+        self.wfile.write(data)
 
     def serve_tree(self):
         t = build_tree(CHAPTERS_DIR)
