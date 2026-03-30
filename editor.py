@@ -308,7 +308,7 @@ body { font-family: -apple-system, "Helvetica Neue", sans-serif; background: var
   display: flex; flex-direction: column; overflow: hidden;
 }
 .sidebar-header { padding: 12px 16px; border-bottom: 1px solid var(--border); position: relative; overflow: hidden; }
-#tilingCanvas { position: absolute; top: 0; left: 0; pointer-events: none; opacity: 0.3; }
+#tilingCanvas { position: absolute; top: 0; left: 0; pointer-events: none; opacity: 0.5; }
 .sidebar-header-content { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; }
 .sidebar-header-content { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; }
 .sidebar-header-content img { width: 32px; height: 32px; border-radius: 4px; flex-shrink: 0; }
