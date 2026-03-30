@@ -704,7 +704,12 @@ async function api(path, opts) {
   return r.json();
 }
 
-// ── Aperiodic tiling (Penrose via Robinson triangle subdivision) ──────────────
+// ── Aperiodic tiling ─────────────────────────────────────────────────────────
+// Adapted from https://github.com/terraceonhigh/penrose-calcada (1e75b4e)
+// Penrose P3 via Robinson triangle subdivision. Upstream is the interactive
+// standalone version; this is a minimal embedding for the sidebar header.
+// To update: port changes from penrose-calcada/index.html, then bump the hash.
+// Functions prefixed with _ to avoid global collisions (subdivide → _penroseSubdivide, etc).
 const _PHI = (1 + Math.sqrt(5)) / 2;
 
 function _penroseSubdivide(triangles) {
