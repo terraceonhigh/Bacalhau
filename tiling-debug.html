@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Penrose Tiling Debug</title>
+<style>
+  body { margin: 0; background: #1a1a1a; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; color: #ccc; }
+  canvas { border: 1px solid #444; }
+  .controls { margin: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  button { padding: 8px 16px; background: #333; color: #ccc; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
+  button:hover { background: #444; }
+  label { font-size: 13px; }
+</style>
+</head>
+<body>
+
+<canvas id="tilingCanvas" width="600" height="200"></canvas>
+<div class="controls">
+  <button onclick="render()">Regenerate</button>
+  <label>Subdivisions: <input type="range" id="subSlider" min="2" max="8" value="6" oninput="document.getElementById('subVal').textContent=this.value;render()"><span id="subVal">6</span></label>
+  <label>Opacity: <input type="range" id="opacitySlider" min="0" max="100" value="100" oninput="document.getElementById('opVal').textContent=this.value+'%';document.getElementById('tilingCanvas').style.opacity=this.value/100"><span id="opVal">100%</span></label>
+</div>
+<div id="info" style="font-size:12px;color:#888;"></div>
+
+<script>
+const PHI = (1 + Math.sqrt(5)) / 2;
+
+function subdivide(triangles) {
+  const result = [];
+  for (const [type, ax, ay, bx, by, cx, cy] of triangles) {
+    if (type === 0) {
+      // Golden triangle (36° apex at A) → 1 triangle + 1 gnomon
+      const px = ax + (bx - ax) / PHI;
+      const py = ay + (by - ay) / PHI;
+      result.push([0, cx, cy, px, py, bx, by]);
+      result.push([1, px, py, cx, cy, ax, ay]);
+    } else {
+      // Golden gnomon (108° apex at A) → 2 gnomons + 1 triangle
+      const qx = bx + (ax - bx) / PHI;
+      const qy = by + (ay - by) / PHI;
+      const rx = bx + (cx - bx) / PHI;
+      const ry = by + (cy - by) / PHI;
+      result.push([1, rx, ry, cx, cy, ax, ay]);
+      result.push([1, qx, qy, rx, ry, bx, by]);
+      result.push([0, rx, ry, qx, qy, ax, ay]);
+    }
+  }
+  return result;
+}
+
+function render() {
+  const canvas = document.getElementById('tilingCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+  const subdivisions = parseInt(document.getElementById('subSlider').value);
+
+  // Start with 10 golden triangles in a sun/star pattern
+  const rot = Math.random() * Math.PI * 2;
+  const R = Math.max(W, H) * 0.75;
+  let triangles = [];
+  for (let i = 0; i < 10; i++) {
+    const a1 = rot + (2 * i - 1) * Math.PI / 10;
+    const a2 = rot + (2 * i + 1) * Math.PI / 10;
+    const bx = R * Math.cos(a1), by = R * Math.sin(a1);
+    const cx = R * Math.cos(a2), cy = R * Math.sin(a2);
+    if (i % 2 === 0) {
+      triangles.push([0, 0, 0, cx, cy, bx, by]);
+    } else {
+      triangles.push([0, 0, 0, bx, by, cx, cy]);
+    }
+  }
+
+  // Subdivide
+  for (let s = 0; s < subdivisions; s++) {
+    triangles = subdivide(triangles);
+  }
+
+  // Draw
+  const accent = '#5b9bd5';
+  const bg2 = '#2a2a2a';
+  const border = '#444';
+
+  ctx.fillStyle = '#222';
+  ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+
+  let t0 = 0, t1 = 0;
+  for (const [type, ax, ay, bx, by, cx, cy] of triangles) {
+    ctx.fillStyle = type === 0 ? accent : bg2;
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.lineTo(cx, cy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    if (type === 0) t0++; else t1++;
+  }
+  ctx.restore();
+
+  document.getElementById('info').textContent =
+    `${triangles.length} triangles (${t0} golden triangles, ${t1} gnomons), ${subdivisions} subdivisions`;
+}
+
+render();
+</script>
+</body>
+</html>
