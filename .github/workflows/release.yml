@@ -52,6 +52,10 @@ jobs:
           cp build/bacalhau-bin "$CONTENTS/MacOS/Bacalhau"
           chmod +x "$CONTENTS/MacOS/Bacalhau"
 
+          # Ad-hoc code sign + remove quarantine
+          codesign --force --deep -s - "$APP"
+          xattr -cr "$APP"
+
           # Zip
           cd build
           zip -r "Bacalhau-${VERSION}-macos.zip" Bacalhau.app
