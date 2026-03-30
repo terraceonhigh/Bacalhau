@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Bacalhau
-Comment=Manuscript editor
-Exec=bash -c 'cd "$(dirname "%k")" && python3 editor.py .'
-Terminal=true
-Icon=text-editor
-Categories=Office;TextEditor;
