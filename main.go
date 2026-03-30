@@ -85,6 +85,18 @@ func (a *app) OpenFile() (*FileResult, error) {
 	}, nil
 }
 
+// OpenFolder opens a native directory picker and returns the chosen path.
+// Returns empty string if cancelled.
+func (a *app) OpenFolder() (string, error) {
+	path, err := wailsRuntime.OpenDirectoryDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: "Open Folder",
+	})
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // SaveToFile opens a native save dialog and writes base64-encoded data to the
 // chosen path. filterDesc and filterPattern control the file type filter
 // (e.g. "Bacalhau Projects", "*.bacalhau"). Returns the path, or empty string

@@ -1027,6 +1027,27 @@ async function handleOpen(value) {
     }
     document.getElementById('openInput').click();
   } else if (value === 'folder') {
+    // Try Wails native directory picker first
+    if (window.go && window.go.main && window.go.main.app && window.go.main.app.OpenFolder) {
+      try {
+        const path = await window.go.main.app.OpenFolder();
+        if (!path) return;  // cancelled
+        setStatus('Opening folder…');
+        const r = await fetch('/api/open/folder', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({path})
+        });
+        const data = await r.json();
+        if (data.error) { setStatus(data.error); return; }
+        document.getElementById('welcomeOverlay').style.display = 'none';
+        await loadTree();
+        setStatus('Opened ' + path);
+        return;
+      } catch(e) {
+        console.error('Wails OpenFolder failed:', e);
+      }
+    }
     openBrowse();
   }
 }
