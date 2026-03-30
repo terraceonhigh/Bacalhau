@@ -14,6 +14,26 @@ async function api(path, opts) {
   return r.json();
 }
 
+// ── Header menu ──────────────────────────────────────────────────────────────
+function toggleHeaderMenu() {
+  const menu = document.getElementById('headerMenu');
+  menu.style.display = menu.style.display === 'none' ? '' : 'none';
+}
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('headerMenu');
+  if (menu && !e.target.closest('.header-menu-wrap')) menu.style.display = 'none';
+});
+async function showAbout() {
+  document.getElementById('headerMenu').style.display = 'none';
+  try {
+    const data = await api('/api/version');
+    document.getElementById('aboutVersion').textContent = data.version || 'dev';
+  } catch(e) {
+    document.getElementById('aboutVersion').textContent = 'dev';
+  }
+  document.getElementById('aboutOverlay').style.display = 'flex';
+}
+
 // ── Aperiodic tiling ─────────────────────────────────────────────────────────
 // Adapted from https://github.com/terraceonhigh/penrose-calcada (1e75b4e)
 // Penrose P3 via Robinson triangle subdivision. Upstream is the interactive
@@ -434,6 +454,13 @@ async function buildEditor() {
     // Initial auto-resize after appending to DOM
     requestAnimationFrame(autoResize);
   }
+}
+
+function resizeAllTextareas() {
+  document.querySelectorAll('.file-section textarea').forEach(ta => {
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+  });
 }
 
 function highlightActiveHeader() {
@@ -1182,7 +1209,7 @@ function syncEditorToPreview() {
   const pane = document.getElementById('previewPane');
   if (!editorScroll || !pane) return;
 
-  // Find which file section is at the 30% viewport mark, and how far through it
+  // Find which file section is at the 50% viewport mark, and how far through it
   const viewY = editorScroll.scrollTop + editorScroll.clientHeight * 0.5;
   const sections = document.querySelectorAll('.file-section');
   let targetSection = null;
@@ -1222,7 +1249,7 @@ function syncPreviewToEditor() {
   const pane = document.getElementById('previewPane');
   if (!editorScroll || !pane) return;
 
-  // Find which preview chapter is at the 30% viewport mark
+  // Find which preview chapter is at the 50% viewport mark
   const viewY = pane.scrollTop + pane.clientHeight * 0.5;
   const allAnchors = Array.from(pane.querySelectorAll('.chapter-anchor'));
   let anchorIdx = 0;
@@ -1442,3 +1469,69 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('beforeunload', () => {
   navigator.sendBeacon('/api/shutdown');
 });
+
+// ── Auto-resize textareas on pane/window resize ──────────────────────────────
+let resizeRafPending = false;
+function scheduleTextareaResize() {
+  if (resizeRafPending) return;
+  resizeRafPending = true;
+  requestAnimationFrame(() => { resizeAllTextareas(); resizeRafPending = false; });
+}
+window.addEventListener('resize', scheduleTextareaResize);
+if (typeof ResizeObserver !== 'undefined') {
+  const ep = document.getElementById('editorPane');
+  if (ep) new ResizeObserver(scheduleTextareaResize).observe(ep);
+}
+
+// ── Resizable panes ──────────────────────────────────────────────────────────
+(function() {
+  function initResize(handleId, getTarget, setSize, minSize) {
+    const handle = document.getElementById(handleId);
+    if (!handle) return;
+    let startX, startSize;
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startSize = getTarget();
+      handle.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      function onMove(e) {
+        const delta = e.clientX - startX;
+        const newSize = Math.max(minSize, startSize + delta);
+        setSize(newSize);
+      }
+      function onUp() {
+        handle.classList.remove('active');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  const sidebar = document.querySelector('.sidebar');
+  const editorPane = document.getElementById('editorPane');
+  const previewPane = document.getElementById('previewPane');
+
+  // Sidebar resize
+  initResize('resizeSidebar',
+    () => sidebar.offsetWidth,
+    (w) => { sidebar.style.width = w + 'px'; sidebar.style.minWidth = w + 'px'; },
+    180
+  );
+
+  // Editor/Preview resize — adjust flex-basis
+  initResize('resizeEditor',
+    () => editorPane.offsetWidth,
+    (w) => {
+      editorPane.style.flex = 'none';
+      editorPane.style.width = w + 'px';
+      previewPane.style.flex = '1';
+    },
+    200
+  );
+})();
