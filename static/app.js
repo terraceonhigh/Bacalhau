@@ -8,10 +8,52 @@ let currentPanel = 'files';
 let gitState = null;
 let gitLog = [];
 
+// ── Confirm dialog (works in Wails webview where window.confirm may not) ─────
+function bcConfirm(msg) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:99999';
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:20px;max-width:400px;box-shadow:0 4px 20px rgba(0,0,0,0.3)';
+    card.innerHTML = '<p style="color:var(--fg);margin:0 0 16px;font-size:13px;">' + msg.replace(/</g,'&lt;') + '</p>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+      + '<button id="bcConfirmNo" style="padding:6px 16px;cursor:pointer">Cancel</button>'
+      + '<button id="bcConfirmYes" style="padding:6px 16px;cursor:pointer;font-weight:bold">OK</button></div>';
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    const cleanup = (val) => { document.body.removeChild(overlay); resolve(val); };
+    card.querySelector('#bcConfirmYes').onclick = () => cleanup(true);
+    card.querySelector('#bcConfirmNo').onclick = () => cleanup(false);
+    overlay.onclick = (e) => { if (e.target === overlay) cleanup(false); };
+  });
+}
+
 // ── API ──────────────────────────────────────────────────────────────────────
 async function api(path, opts) {
   const r = await fetch(path, opts);
   return r.json();
+}
+
+// Native file save — uses Wails dialog if available, otherwise browser download.
+async function nativeSave(blob, filename, filterDesc, filterPattern) {
+  if (window.go && window.go.main && window.go.main.app && window.go.main.app.SaveToFile) {
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const b64 = btoa(binary);
+    const path = await window.go.main.app.SaveToFile(filename, filterDesc, filterPattern, b64);
+    if (!path) return null; // cancelled
+    return path;
+  }
+  // Browser fallback
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  return filename;
 }
 
 // ── Header menu ──────────────────────────────────────────────────────────────
@@ -155,11 +197,7 @@ async function loadTree() {
   const pn = document.getElementById('projectName');
   if (pn) pn.textContent = data.project || '';
   const welcome = document.getElementById('welcomeOverlay');
-  if (tree.length === 0) {
-    welcome.style.display = 'flex';
-  } else {
-    welcome.style.display = 'none';
-  }
+  welcome.style.display = 'none';  // Disabled — doesn't work in Wails webview
   renderTree();
   await buildEditor();
   renderPreview();
@@ -173,7 +211,8 @@ function renderTree() {
   // Assign scene numbers before rendering
   let sceneNum = 0;
   assignSceneNumbers(tree, n => ++sceneNum);
-  container.appendChild(buildTreeUL(tree, ''));
+  const ul = buildTreeUL(tree, '');
+  container.appendChild(ul);
 }
 
 function assignSceneNumbers(nodes, nextNum) {
@@ -729,7 +768,7 @@ function renderGitPanel() {
 }
 
 async function gitRestore(sha) {
-  if (!confirm('Restore your manuscript to this version? Your current text will be saved as a new checkpoint first.')) return;
+  if (!await bcConfirm('Restore your manuscript to this version? Your current text will be saved as a new checkpoint first.')) return;
   // Save any dirty files first
   await saveFile();
   // Stage and commit current state if there are changes
@@ -878,7 +917,7 @@ async function copyFile(path) {
 }
 
 async function removeFile(path) {
-  if (!confirm('Delete ' + path + '?')) return;
+  if (!await bcConfirm('Delete ' + path + '?')) return;
   const data = await api('/api/chapter/' + encodeURI(path), {method:'DELETE'});
   if (data.error) { setStatus(data.error); return; }
   setStatus(data.message);
@@ -895,7 +934,7 @@ async function copyDir(path) {
 }
 
 async function removeDir(path) {
-  if (!confirm('Delete folder ' + path + ' and all contents?')) return;
+  if (!await bcConfirm('Delete folder ' + path + ' and all contents?')) return;
   const data = await api('/api/dir/' + encodeURI(path), {method:'DELETE'});
   if (data.error) { setStatus(data.error); return; }
   setStatus(data.message);
@@ -929,53 +968,18 @@ async function saveBacalhau() {
     }
     const ct = r.headers.get('Content-Type') || '';
     if (ct.includes('application/json')) {
+      // In-place save (opened from a .bacalhau file on disk)
       const data = await r.json();
       setStatus('Saved to ' + (data.path || '.bacalhau'));
     } else {
       const blob = await r.blob();
-      // Try to overwrite the original file via File System Access API
-      if (_bacalhauFileHandle) {
-        try {
-          const writable = await _bacalhauFileHandle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          setStatus('Saved ' + _bacalhauFileHandle.name);
-          return;
-        } catch(e) {
-          // Permission revoked or API error — fall through to download
-        }
-      }
-      // Try showSaveFilePicker for a native save dialog
-      if (window.showSaveFilePicker) {
-        try {
-          const disp = r.headers.get('Content-Disposition') || '';
-          const match = disp.match(/filename="?([^"]+)"?/);
-          const suggestedName = match ? match[1] : 'project.bacalhau';
-          const handle = await window.showSaveFilePicker({
-            suggestedName,
-            types: [{description: 'Bacalhau project', accept: {'application/octet-stream': ['.bacalhau']}}]
-          });
-          const writable = await handle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          _bacalhauFileHandle = handle;
-          setStatus('Saved ' + handle.name);
-          return;
-        } catch(e) {
-          if (e.name === 'AbortError') { setStatus('Save cancelled'); return; }
-          // Fall through to legacy download
-        }
-      }
-      // Legacy fallback: browser download
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
       const disp = r.headers.get('Content-Disposition') || '';
       const match = disp.match(/filename="?([^"]+)"?/);
-      a.download = match ? match[1] : 'project.bacalhau';
-      a.click();
-      URL.revokeObjectURL(url);
-      setStatus('Downloaded ' + a.download);
+      const suggestedName = match ? match[1] : 'project.bacalhau';
+
+      const result = await nativeSave(blob, suggestedName, 'Bacalhau Projects', '*.bacalhau');
+      if (!result) { setStatus('Save cancelled'); return; }
+      setStatus('Saved to ' + result);
     }
   } catch(e) {
     setStatus('Save failed');
@@ -984,7 +988,29 @@ async function saveBacalhau() {
 
 async function handleOpen(value) {
   if (value === 'bacalhau') {
-    // Try File System Access API first — gives us a handle for overwriting later
+    // Try Wails native file dialog first (desktop app)
+    if (window.go && window.go.main && window.go.main.app && window.go.main.app.OpenFile) {
+      try {
+        const result = await window.go.main.app.OpenFile();
+        if (!result) return;  // cancelled
+        setStatus('Opening ' + result.filename + '…');
+        const r = await fetch('/api/open', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({filename: result.filename, data: result.data})
+        });
+        const data = await r.json();
+        if (data.error) { setStatus(data.error); return; }
+        document.getElementById('welcomeOverlay').style.display = 'none';
+        await loadTree();
+        setStatus('Opened ' + result.filename);
+        return;
+      } catch(e) {
+        console.error('Wails OpenFile failed:', e);
+        // Fall through to browser methods
+      }
+    }
+    // Try File System Access API (Chrome/Edge)
     if (window.showOpenFilePicker) {
       try {
         const [handle] = await window.showOpenFilePicker({
@@ -1118,7 +1144,7 @@ function renderBrowse() {
 
 async function browseOpenHere() {
   if (!browsePath) return;
-  if (browseData && browseData.mdCount === 0 && !confirm('This folder has no markdown files. Open anyway?')) return;
+  if (browseData && browseData.mdCount === 0 && !await bcConfirm('This folder has no markdown files. Open anyway?')) return;
   setStatus('Opening folder\u2026');
   try {
     const r = await api('/api/open/folder', {
@@ -1140,26 +1166,18 @@ async function saveProject() {
   setStatus('Saving...');
   const r = await fetch('/api/save/zip');
   const blob = await r.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'bone-china-chapters.zip';
-  a.click();
-  URL.revokeObjectURL(url);
-  setStatus('Downloaded bone-china-chapters.zip');
+  const result = await nativeSave(blob, 'chapters.zip', 'ZIP Archive', '*.zip');
+  if (!result) { setStatus('Save cancelled'); return; }
+  setStatus('Saved to ' + result);
 }
 
 async function exportMarkdown() {
   setStatus('Generating...');
   const r = await fetch('/api/export/markdown');
   const blob = await r.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'bone-china.md';
-  a.click();
-  URL.revokeObjectURL(url);
-  setStatus('Downloaded bone-china.md');
+  const result = await nativeSave(blob, 'manuscript.md', 'Markdown', '*.md');
+  if (!result) { setStatus('Save cancelled'); return; }
+  setStatus('Saved to ' + result);
 }
 
 async function exportPDF() {
@@ -1172,13 +1190,9 @@ async function exportPDF() {
       return;
     }
     const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'bone-china.pdf';
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatus('Downloaded bone-china.pdf');
+    const result = await nativeSave(blob, 'manuscript.pdf', 'PDF Document', '*.pdf');
+    if (!result) { setStatus('Save cancelled'); return; }
+    setStatus('Saved to ' + result);
   } catch(e) {
     setStatus('PDF export failed');
   }
@@ -1356,7 +1370,7 @@ function updateWordCount() {
 
 document.addEventListener('keydown', e => {
   if ((e.metaKey||e.ctrlKey) && e.key === 's') { e.preventDefault(); saveFile(); }
-  if ((e.metaKey||e.ctrlKey) && e.key === 'o') { e.preventDefault(); document.getElementById('openInput').click(); }
+  if ((e.metaKey||e.ctrlKey) && e.key === 'o') { e.preventDefault(); handleOpen('bacalhau'); }
 });
 
 // ── Themes ───────────────────────────────────────────────────────────────────

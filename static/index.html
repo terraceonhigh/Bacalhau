@@ -29,6 +29,10 @@
     <div id="gitContent"></div>
   </div>
   <div class="sidebar-footer">
+    <div class="sidebar-add-row">
+      <button class="sidebar-add-btn" onclick="newFile('')">+ file</button>
+      <button class="sidebar-add-btn" onclick="newDir('')">+ folder</button>
+    </div>
     <input type="file" id="openInput" accept=".bacalhau" style="display:none" onchange="handleOpenFile(this)">
     <input type="file" id="themeInput" accept=".css" style="display:none" onchange="handleImportTheme(this)">
     <select id="openSelect" onchange="handleOpen(this.value); this.value='';" style="width:100%;padding:6px 14px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;cursor:pointer;">
@@ -60,7 +64,7 @@
   <div class="welcome-card">
     <h2 style="color:var(--fg);margin:0 0 8px;font-size:22px;">Bacalhau</h2>
     <p style="color:var(--fg2);margin:0 0 20px;font-size:13px;">Open a manuscript to get started.</p>
-    <button style="margin:4px;padding:10px 24px;" onclick="document.getElementById('openInput').click()">Open .bacalhau</button>
+    <button style="margin:4px;padding:10px 24px;" onclick="handleOpen('bacalhau')">Open .bacalhau</button>
     <button style="margin:4px;padding:10px 24px;" onclick="openBrowse()">Open Folder</button>
     <button style="margin:4px;padding:10px 24px;" onclick="document.getElementById('welcomeOverlay').style.display='none';newFile('')">New Project</button>
   </div>

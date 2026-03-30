@@ -1,23 +1,22 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"encoding/base64"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
-	"os/exec"
-	"os/signal"
 	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
-	"syscall"
-	"time"
 
 	bfs "github.com/terraceonhigh/Bacalhau/internal/fs"
 	"github.com/terraceonhigh/Bacalhau/internal/server"
 	"github.com/terraceonhigh/Bacalhau/internal/state"
+
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed static/*
@@ -34,41 +33,110 @@ var iconPNG []byte
 
 var version = "dev"
 
+// app bridges the Wails lifecycle with the Bacalhau server.
+type app struct {
+	ctx      context.Context
+	repackFn func()
+	tempDirs []string
+}
+
+func (a *app) startup(ctx context.Context) {
+	a.ctx = ctx
+	wailsRuntime.WindowShow(ctx)
+}
+
+func (a *app) shutdown(ctx context.Context) {
+	a.repackFn()
+	for _, d := range a.tempDirs {
+		os.RemoveAll(d) //nolint:errcheck
+	}
+}
+
+// FileResult is returned by OpenFile to the frontend.
+type FileResult struct {
+	Filename string `json:"filename"`
+	Data     string `json:"data"` // base64-encoded
+}
+
+// OpenFile opens a native file dialog for .bacalhau files and returns the
+// filename + base64-encoded contents. Returns empty result if cancelled.
+func (a *app) OpenFile() (*FileResult, error) {
+	path, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: "Open Project",
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "Bacalhau Projects", Pattern: "*.bacalhau"},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return nil, nil // cancelled
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return &FileResult{
+		Filename: filepath.Base(path),
+		Data:     base64.StdEncoding.EncodeToString(data),
+	}, nil
+}
+
+// SaveToFile opens a native save dialog and writes base64-encoded data to the
+// chosen path. filterDesc and filterPattern control the file type filter
+// (e.g. "Bacalhau Projects", "*.bacalhau"). Returns the path, or empty string
+// if cancelled.
+func (a *app) SaveToFile(suggestedName, filterDesc, filterPattern, b64data string) (string, error) {
+	path, err := wailsRuntime.SaveFileDialog(a.ctx, wailsRuntime.SaveDialogOptions{
+		Title:           "Save",
+		DefaultFilename: suggestedName,
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: filterDesc, Pattern: filterPattern},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", nil // cancelled
+	}
+
+	data, err := base64.StdEncoding.DecodeString(b64data)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 func main() {
-	// Parse args: bacalhau [project-path] [--port N]
+	// Parse args: bacalhau [project-path]
 	args := os.Args[1:]
-	port := 3000
 	var projectDir string
 
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--port" && i+1 < len(args) {
-			if p, err := strconv.Atoi(args[i+1]); err == nil {
-				port = p
-			}
-			i++
-		} else if !strings.HasPrefix(args[i], "-") {
+		if !strings.HasPrefix(args[i], "-") {
 			projectDir = args[i]
 		}
 	}
 
 	appState := state.New()
+	a := &app{}
 
-	// Track temp dirs to clean up on exit.
-	var tempDirs []string
-	defer func() {
-		for _, d := range tempDirs {
-			os.RemoveAll(d) //nolint:errcheck
-		}
-	}()
+	// --- Project setup (unchanged) ---
 
 	if projectDir == "" {
-		// No project specified -- create empty temp dir for welcome state.
 		tmpDir, err := os.MkdirTemp("", "bacalhau-empty-")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		tempDirs = append(tempDirs, tmpDir)
+		a.tempDirs = append(a.tempDirs, tmpDir)
 		chapDir := filepath.Join(tmpDir, "chapters")
 		os.MkdirAll(chapDir, 0o755) //nolint:errcheck
 		appState.SetTempDir(tmpDir)
@@ -77,7 +145,6 @@ func main() {
 		projectDir, _ = filepath.Abs(projectDir)
 
 		if strings.HasSuffix(projectDir, ".bacalhau") && isFile(projectDir) {
-			// Handle .bacalhau file: extract to temp dir.
 			appState.SetBacalhauFile(projectDir)
 
 			tmpDir, err := os.MkdirTemp("", "bacalhau-")
@@ -85,7 +152,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
-			tempDirs = append(tempDirs, tmpDir)
+			a.tempDirs = append(a.tempDirs, tmpDir)
 
 			if err := bfs.Extract(projectDir, tmpDir); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -103,7 +170,6 @@ func main() {
 			appState.SetChaptersDir(chapDir)
 			fmt.Fprintf(os.Stderr, "Opened: %s -> %s\n", projectDir, tmpDir)
 		} else {
-			// Handle directory.
 			if info, err := os.Stat(projectDir); err != nil || !info.IsDir() {
 				fmt.Fprintf(os.Stderr, "Error: not a directory: %s\n", projectDir)
 				os.Exit(1)
@@ -112,8 +178,9 @@ func main() {
 		}
 	}
 
-	// Repack function: save .bacalhau file if applicable.
-	repackFn := func() {
+	// --- Repack & shutdown ---
+
+	a.repackFn = func() {
 		bf := appState.BacalhauFile()
 		cd := appState.ChaptersDir()
 		if bf != "" && cd != "" {
@@ -123,92 +190,36 @@ func main() {
 		}
 	}
 
-	// Shutdown signal channel.
-	shutdownCh := make(chan struct{}, 1)
+	// shutdownFn for the /api/shutdown endpoint — tells Wails to quit.
 	shutdownFn := func() {
-		select {
-		case shutdownCh <- struct{}{}:
-		default:
+		if a.ctx != nil {
+			wailsRuntime.Quit(a.ctx)
 		}
 	}
 
-	srv := server.New(appState, staticFS, vendorFS, themesFS, iconPNG, version, shutdownFn, repackFn)
+	srv := server.New(appState, staticFS, vendorFS, themesFS, iconPNG, version, shutdownFn, a.repackFn)
 
-	// Find an available port.
-	var listener net.Listener
-	for attempt := port; attempt < port+100; attempt++ {
-		l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(attempt))
-		if err == nil {
-			listener = l
-			port = attempt
-			break
-		}
-	}
-	if listener == nil {
-		fmt.Fprintln(os.Stderr, "Error: no available port found")
+	fmt.Fprintf(os.Stderr, "Bacalhau: editing %s\n", appState.ChaptersDir())
+
+	// --- Launch Wails window ---
+
+	err := wails.Run(&options.App{
+		Title:     "Bacalhau",
+		Width:     1280,
+		Height:    800,
+		MinWidth:  800,
+		MinHeight: 600,
+		AssetServer: &assetserver.Options{
+			Handler: srv.Handler(),
+		},
+		OnStartup:          a.startup,
+		OnShutdown:         a.shutdown,
+		Bind:               []interface{}{a},
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-
-	url := fmt.Sprintf("http://localhost:%d", port)
-	pid := os.Getpid()
-	fmt.Fprintf(os.Stderr, "Bacalhau: %s -- editing %s\n", url, appState.ChaptersDir())
-	fmt.Fprintf(os.Stderr, "PID: %d -- kill with: kill %d\n", pid, pid)
-	fmt.Fprintln(os.Stderr, "Press Ctrl+C to stop.")
-
-	// Start HTTP server in background.
-	httpServer := &http.Server{Handler: srv.Handler()}
-	go func() {
-		if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
-			fmt.Fprintf(os.Stderr, "HTTP error: %v\n", err)
-		}
-	}()
-
-	// Open browser after a short delay.
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		openBrowser(url)
-	}()
-
-	// Heartbeat watchdog: shut down if browser disappears.
-	go func() {
-		time.Sleep(30 * time.Second) // Grace period for browser to connect.
-		for {
-			time.Sleep(15 * time.Second)
-			if appState.HeartbeatAge() > 2*time.Minute {
-				fmt.Fprintln(os.Stderr, "\nNo heartbeat for 2 minutes -- shutting down.")
-				repackFn()
-				os.Exit(0)
-			}
-		}
-	}()
-
-	// Signal handling.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-
-	// Block until signal or shutdown request.
-	select {
-	case sig := <-sigCh:
-		fmt.Fprintf(os.Stderr, "\nReceived signal %v, shutting down.\n", sig)
-	case <-shutdownCh:
-		fmt.Fprintln(os.Stderr, "\nShutdown requested.")
-	}
-
-	repackFn()
-	httpServer.Close() //nolint:errcheck
-}
-
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "linux":
-		cmd = exec.Command("xdg-open", url)
-	default:
-		return
-	}
-	cmd.Start() //nolint:errcheck
 }
 
 func isFile(path string) bool {
