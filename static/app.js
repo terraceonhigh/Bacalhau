@@ -259,6 +259,13 @@ function makeInsertZone(parentPath, position) {
 
 function buildTreeUL(nodes, parentPath) {
   const ul = document.createElement('ul');
+  // When tree is empty, show the insert zone persistently
+  if (nodes.length === 0 && parentPath === '') {
+    const zone = makeInsertZone(parentPath, 0);
+    zone.classList.add('insert-zone-empty');
+    ul.appendChild(zone);
+    return ul;
+  }
   nodes.forEach((node, i) => {
     // Insert zone before each item
     ul.appendChild(makeInsertZone(parentPath, i));

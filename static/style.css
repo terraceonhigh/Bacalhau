@@ -157,6 +157,9 @@ button.primary:hover { opacity: 0.85; }
   transform: translate(-50%, -50%); gap: 4px; z-index: 1;
 }
 .insert-zone:hover .iz-buttons { display: flex; }
+.insert-zone-empty { height: 32px; margin-top: 12px; }
+.insert-zone-empty .iz-buttons { display: flex; }
+.insert-zone-empty::before { background: var(--border); }
 .iz-btn {
   font-size: 9px; padding: 1px 6px; border-radius: 2px;
   background: var(--bg3); border: 1px solid var(--accent); color: var(--accent);
