@@ -6,6 +6,7 @@
 // ── In-memory project state ─────────────────────────────────────────────────
 let tree = [];           // [{type:'file'|'dir', name, path, heading, writable, children?}]
 let files = {};          // path -> content (markdown strings)
+let fileOrder = {};      // dir path ('' for root) -> [entry names] — mirrors _order.yaml
 let _preservedZip = null; // original JSZip object — preserves latex/, etc.
 let projectName = '';
 let activeFile = null;
@@ -383,52 +384,145 @@ function renderTiling() {
 // Build tree from flat files map. Paths like "part-1/01-chapter.md" become
 // nested dir/file nodes. Sorting: dirs by name, then files by name.
 function buildTreeFromFiles() {
-  const root = [];
+  // Collect all directories and files that exist
+  const dirSet = new Set();   // set of dir paths ('' for root)
+  const dirFiles = {};        // dirPath -> [{type, name}]
 
-  function ensureDir(parts) {
-    let level = root;
-    let path = '';
-    for (const part of parts) {
-      path = path ? path + '/' + part : part;
-      let existing = level.find(n => n.type === 'dir' && n.name === part);
-      if (!existing) {
-        existing = { type: 'dir', name: part, path, heading: headingFromName(part), children: [] };
-        level.push(existing);
-      }
-      level = existing.children;
-    }
-    return level;
-  }
+  dirSet.add('');
+  dirFiles[''] = [];
 
-  for (const filePath of Object.keys(files).sort()) {
+  for (const filePath of Object.keys(files)) {
     const parts = filePath.split('/');
     const fname = parts.pop();
-    const parent = parts.length > 0 ? ensureDir(parts) : root;
-    const content = files[filePath];
-    // Extract heading from first # or ## or ### line, or use filename
-    const headingMatch = content.match(/^#{1,3}\s+(.+)$/m);
-    const heading = headingMatch ? headingMatch[1].trim() : fname.replace(/\.md$/, '');
-    parent.push({
-      type: 'file',
-      name: fname,
-      path: filePath,
-      heading,
-      writable: true
-    });
+    const dirPath = parts.join('/');
+
+    // Ensure all ancestor dirs exist
+    for (let i = 1; i <= parts.length; i++) {
+      const dp = parts.slice(0, i).join('/');
+      if (!dirSet.has(dp)) {
+        dirSet.add(dp);
+        dirFiles[dp] = [];
+        // Add dir to parent's children
+        const parentDp = parts.slice(0, i - 1).join('/');
+        if (!dirFiles[parentDp]) { dirFiles[parentDp] = []; }
+        const dirName = parts[i - 1];
+        if (!dirFiles[parentDp].find(e => e.type === 'dir' && e.name === dirName)) {
+          dirFiles[parentDp].push({ type: 'dir', name: dirName });
+        }
+      }
+    }
+
+    if (!dirFiles[dirPath]) dirFiles[dirPath] = [];
+    dirFiles[dirPath].push({ type: 'file', name: fname });
   }
 
-  // Sort each level: dirs first (by name), then files (by name)
-  function sortLevel(nodes) {
-    nodes.sort((a, b) => {
+  // Build tree recursively using fileOrder for ordering
+  function buildLevel(dirPath) {
+    const entries = dirFiles[dirPath] || [];
+    const order = fileOrder[dirPath] || [];
+
+    // Build a map of entry name -> entry for quick lookup
+    // For order matching: files use "name.md", dirs use "name/"
+    const entryMap = new Map();
+    for (const e of entries) {
+      const key = e.type === 'dir' ? e.name + '/' : e.name;
+      entryMap.set(key, e);
+    }
+
+    // Ordered entries first, then any unlisted ones alphabetically
+    const ordered = [];
+    const seen = new Set();
+    for (const key of order) {
+      if (entryMap.has(key) && !seen.has(key)) {
+        ordered.push(entryMap.get(key));
+        seen.add(key);
+      }
+    }
+    // Append unlisted entries sorted alphabetically
+    const unlisted = [];
+    for (const [key, e] of entryMap) {
+      if (!seen.has(key)) unlisted.push(e);
+    }
+    unlisted.sort((a, b) => {
       if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
       return a.name.localeCompare(b.name, undefined, { numeric: true });
     });
-    for (const n of nodes) {
-      if (n.type === 'dir' && n.children) sortLevel(n.children);
+    ordered.push(...unlisted);
+
+    // Convert to tree nodes
+    const nodes = [];
+    for (const e of ordered) {
+      if (e.name.startsWith('_') || e.name.startsWith('.')) continue;
+      if (e.type === 'dir') {
+        const childPath = dirPath ? dirPath + '/' + e.name : e.name;
+        // Get heading from _part.md if it exists
+        const partPath = childPath + '/_part.md';
+        let heading = headingFromName(e.name);
+        if (files[partPath]) {
+          const m = files[partPath].match(/^#{1,3}\s+(.+)$/m);
+          if (m) heading = m[1].trim();
+        }
+        nodes.push({
+          type: 'dir', name: e.name, path: childPath, heading,
+          children: buildLevel(childPath)
+        });
+      } else {
+        const filePath = dirPath ? dirPath + '/' + e.name : e.name;
+        const content = files[filePath] || '';
+        const headingMatch = content.match(/^#{1,3}\s+(.+)$/m);
+        const heading = headingMatch ? headingMatch[1].trim() : e.name.replace(/\.md$/, '');
+        nodes.push({
+          type: 'file', name: e.name, path: filePath, heading, writable: true
+        });
+      }
     }
+    return nodes;
   }
-  sortLevel(root);
-  return root;
+
+  return buildLevel('');
+}
+
+// Get the current ordering for a directory, generating it from the tree if needed
+function getOrder(dirPath) {
+  return fileOrder[dirPath] || [];
+}
+
+// Set ordering for a directory and persist
+function setOrder(dirPath, order) {
+  fileOrder[dirPath] = order;
+  saveToLocalStorage();
+}
+
+// Build _order.yaml content from fileOrder entries
+function orderToYaml(entries) {
+  return entries.map(e => '- ' + e).join('\n') + '\n';
+}
+
+// Parse _order.yaml content
+function yamlToOrder(content) {
+  return content.split('\n')
+    .map(line => line.trim())
+    .filter(line => line.startsWith('- '))
+    .map(line => line.slice(2).trim())
+    .filter(Boolean);
+}
+
+// Rebuild fileOrder from current tree state (ensures it stays in sync)
+function rebuildOrderFromTree() {
+  fileOrder = {};
+  function walk(nodes, dirPath) {
+    const order = [];
+    for (const n of nodes) {
+      if (n.type === 'dir') {
+        order.push(n.name + '/');
+        walk(n.children || [], n.path);
+      } else {
+        order.push(n.name);
+      }
+    }
+    fileOrder[dirPath] = order;
+  }
+  walk(tree, '');
 }
 
 function headingFromName(name) {
@@ -644,26 +738,75 @@ function onDrop(targetDir, position) {
   if (dragItem.path === targetDir) return;
   if (dragItem.type === 'dir' && targetDir.startsWith(dragItem.path + '/')) return;
 
-  // Move in files map: rename all paths that start with dragItem.path
   const srcPath = dragItem.path;
   const srcName = srcPath.split('/').pop();
-  const newPath = targetDir ? targetDir + '/' + srcName : srcName;
+  const srcParent = srcPath.includes('/') ? srcPath.substring(0, srcPath.lastIndexOf('/')) : '';
+  const entryName = dragItem.type === 'dir' ? srcName + '/' : srcName;
 
-  if (srcPath === newPath) return;
+  const sameDir = srcParent === targetDir;
 
-  const newFiles = {};
-  for (const [p, content] of Object.entries(files)) {
-    if (p === srcPath || p.startsWith(srcPath + '/')) {
-      const newP = newPath + p.slice(srcPath.length);
-      newFiles[newP] = content;
+  if (sameDir) {
+    // Reorder within the same directory
+    let order = (fileOrder[srcParent] || []).slice();
+    const oldIdx = order.indexOf(entryName);
+    if (oldIdx >= 0) order.splice(oldIdx, 1);
+    let insertPos = position;
+    if (insertPos < 0 || insertPos >= order.length) {
+      insertPos = order.length;
+    } else if (oldIdx >= 0 && oldIdx < position) {
+      insertPos = Math.max(0, position - 1);
+    }
+    order.splice(insertPos, 0, entryName);
+    setOrder(srcParent, order);
+  } else {
+    // Move between directories
+    // Remove from source order
+    let srcOrder = (fileOrder[srcParent] || []).slice();
+    srcOrder = srcOrder.filter(e => e !== entryName);
+    setOrder(srcParent, srcOrder);
+
+    // Rename files in the files map
+    const newPath = targetDir ? targetDir + '/' + srcName : srcName;
+    const newFiles = {};
+    for (const [p, content] of Object.entries(files)) {
+      if (dragItem.type === 'file' && p === srcPath) {
+        newFiles[newPath] = content;
+      } else if (dragItem.type === 'dir' && p.startsWith(srcPath + '/')) {
+        newFiles[newPath + p.slice(srcPath.length)] = content;
+      } else {
+        newFiles[p] = content;
+      }
+    }
+    files = newFiles;
+
+    // Also move sub-directory orders if dragging a dir
+    if (dragItem.type === 'dir') {
+      const newOrder = {};
+      for (const [dp, order] of Object.entries(fileOrder)) {
+        if (dp === srcPath || dp.startsWith(srcPath + '/')) {
+          newOrder[newPath + dp.slice(srcPath.length)] = order;
+        } else {
+          newOrder[dp] = order;
+        }
+      }
+      fileOrder = newOrder;
+    }
+
+    // Add to destination order
+    let destOrder = (fileOrder[targetDir] || []).slice();
+    destOrder = destOrder.filter(e => e !== entryName);
+    if (position >= 0 && position < destOrder.length) {
+      destOrder.splice(position, 0, entryName);
     } else {
-      newFiles[p] = content;
+      destOrder.push(entryName);
+    }
+    setOrder(targetDir, destOrder);
+
+    if (activeFile && (activeFile === srcPath || activeFile.startsWith(srcPath + '/'))) {
+      activeFile = newPath + activeFile.slice(srcPath.length);
     }
   }
-  files = newFiles;
-  if (activeFile && (activeFile === srcPath || activeFile.startsWith(srcPath + '/'))) {
-    activeFile = newPath + activeFile.slice(srcPath.length);
-  }
+
   setStatus('Moved ' + srcName);
   loadTree();
 }
@@ -830,14 +973,25 @@ function newFile(dir, position) {
     slug = 'untitled-' + num;
     num++;
   }
+  const fname = slug + '.md';
   const path = makePath(slug);
   files[path] = '### Untitled\n\n';
+
+  // Add to ordering
+  let order = (fileOrder[dir || ''] || []).slice();
+  if (position >= 0 && position <= order.length) {
+    order.splice(position, 0, fname);
+  } else {
+    order.push(fname);
+  }
+  fileOrder[dir || ''] = order;
+
   activeFile = path;
   loadTree();
   saveToLocalStorage();
   setTimeout(() => {
     const row = document.querySelector('[data-path="'+path+'"]');
-    if (row) startInlineRename(row, path, slug + '.md', 'file');
+    if (row) startInlineRename(row, path, fname, 'file');
   }, 50);
 }
 
@@ -845,14 +999,25 @@ function newDir(parentDir, position) {
   let name = 'untitled';
   let num = 1;
   const makePath = (n) => parentDir ? parentDir + '/' + n : n;
-  // Check if dir exists by checking if any file starts with this path
   while (Object.keys(files).some(p => p.startsWith(makePath(name) + '/'))) {
     name = 'untitled-' + num;
     num++;
   }
   const path = makePath(name);
-  // Create a placeholder file inside
   files[path + '/untitled.md'] = '### Untitled\n\n';
+
+  // Add to parent ordering
+  let order = (fileOrder[parentDir || ''] || []).slice();
+  const entry = name + '/';
+  if (position >= 0 && position <= order.length) {
+    order.splice(position, 0, entry);
+  } else {
+    order.push(entry);
+  }
+  fileOrder[parentDir || ''] = order;
+  // Initialize child ordering
+  fileOrder[path] = ['untitled.md'];
+
   loadTree();
   saveToLocalStorage();
   setTimeout(() => {
@@ -899,15 +1064,39 @@ function startInlineRename(row, path, currentName, type) {
 
 function renameItem(path, newName, type) {
   const parts = path.split('/');
-  parts.pop();
+  const oldName = parts.pop();
+  const parentDir = parts.join('/');
   const newLast = type === 'file' ? newName + '.md' : newName;
-  const newPath = parts.length > 0 ? parts.join('/') + '/' + newLast : newLast;
+  const newPath = parentDir ? parentDir + '/' + newLast : newLast;
+
+  // Update ordering
+  const oldEntry = type === 'dir' ? oldName + '/' : oldName;
+  const newEntry = type === 'dir' ? newLast + '/' : newLast;
+  let order = (fileOrder[parentDir || ''] || []).slice();
+  const idx = order.indexOf(oldEntry);
+  if (idx >= 0) order[idx] = newEntry;
+  fileOrder[parentDir || ''] = order;
+
+  // Rename sub-dir orders too
+  if (type === 'dir') {
+    const newOrder = {};
+    for (const [dp, o] of Object.entries(fileOrder)) {
+      if (dp === path) {
+        newOrder[newPath] = o;
+      } else if (dp.startsWith(path + '/')) {
+        newOrder[newPath + dp.slice(path.length)] = o;
+      } else {
+        newOrder[dp] = o;
+      }
+    }
+    fileOrder = newOrder;
+  }
 
   const newFiles = {};
   for (const [p, content] of Object.entries(files)) {
     if (type === 'file' && p === path) {
       newFiles[newPath] = content;
-    } else if (type === 'dir' && (p === path + '/' || p.startsWith(path + '/'))) {
+    } else if (type === 'dir' && p.startsWith(path + '/')) {
       const newP = newPath + p.slice(path.length);
       newFiles[newP] = content;
     } else {
@@ -924,7 +1113,8 @@ function renameItem(path, newName, type) {
 
 async function copyFile(path) {
   const parts = path.split('/');
-  const fname = parts.pop().replace(/\.md$/, '');
+  const origFname = parts.pop();
+  const fname = origFname.replace(/\.md$/, '');
   const dir = parts.join('/');
   let newName = fname + '-copy.md';
   let num = 2;
@@ -934,6 +1124,17 @@ async function copyFile(path) {
     num++;
   }
   files[makePath()] = files[path] || '';
+
+  // Add to ordering right after the original
+  let order = (fileOrder[dir || ''] || []).slice();
+  const idx = order.indexOf(origFname);
+  if (idx >= 0) {
+    order.splice(idx + 1, 0, newName);
+  } else {
+    order.push(newName);
+  }
+  fileOrder[dir || ''] = order;
+
   setStatus('Copied');
   loadTree();
   saveToLocalStorage();
@@ -941,7 +1142,15 @@ async function copyFile(path) {
 
 async function removeFile(path) {
   if (!await bcConfirm('Delete ' + path + '?')) return;
+  const parts = path.split('/');
+  const fname = parts.pop();
+  const dir = parts.join('/');
   delete files[path];
+
+  // Remove from ordering
+  let order = (fileOrder[dir || ''] || []).slice();
+  fileOrder[dir || ''] = order.filter(e => e !== fname);
+
   if (activeFile === path) activeFile = null;
   setStatus('Deleted');
   loadTree();
@@ -949,10 +1158,14 @@ async function removeFile(path) {
 }
 
 function copyDir(path) {
-  let newPath = path + '-copy';
+  const dirName = path.split('/').pop();
+  const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+  let newName = dirName + '-copy';
   let num = 2;
+  let newPath = parentDir ? parentDir + '/' + newName : newName;
   while (Object.keys(files).some(p => p.startsWith(newPath + '/'))) {
-    newPath = path + '-copy-' + num;
+    newName = dirName + '-copy-' + num;
+    newPath = parentDir ? parentDir + '/' + newName : newName;
     num++;
   }
   for (const [p, content] of Object.entries(files)) {
@@ -960,6 +1173,24 @@ function copyDir(path) {
       files[newPath + p.slice(path.length)] = content;
     }
   }
+  // Copy sub-orderings
+  for (const [dp, order] of Object.entries(fileOrder)) {
+    if (dp === path || dp.startsWith(path + '/')) {
+      fileOrder[newPath + dp.slice(path.length)] = order.slice();
+    }
+  }
+  // Add to parent ordering after original
+  let order = (fileOrder[parentDir || ''] || []).slice();
+  const entry = dirName + '/';
+  const newEntry = newName + '/';
+  const idx = order.indexOf(entry);
+  if (idx >= 0) {
+    order.splice(idx + 1, 0, newEntry);
+  } else {
+    order.push(newEntry);
+  }
+  fileOrder[parentDir || ''] = order;
+
   setStatus('Copied folder');
   loadTree();
   saveToLocalStorage();
@@ -967,9 +1198,20 @@ function copyDir(path) {
 
 async function removeDir(path) {
   if (!await bcConfirm('Delete folder ' + path + ' and all contents?')) return;
+  const dirName = path.split('/').pop();
+  const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+
   for (const p of Object.keys(files)) {
     if (p.startsWith(path + '/')) delete files[p];
   }
+  // Remove from parent ordering
+  let order = (fileOrder[parentDir || ''] || []).slice();
+  fileOrder[parentDir || ''] = order.filter(e => e !== dirName + '/');
+  // Remove sub-orderings
+  for (const dp of Object.keys(fileOrder)) {
+    if (dp === path || dp.startsWith(path + '/')) delete fileOrder[dp];
+  }
+
   if (activeFile && activeFile.startsWith(path + '/')) activeFile = null;
   setStatus('Deleted folder');
   loadTree();
@@ -1021,18 +1263,29 @@ async function openBacalhauFile(file) {
     files = {};
     projectName = file.name.replace(/\.bacalhau$/, '');
 
-    // Extract chapters/ directory
+    // Extract chapters/ directory (markdown files + _order.yaml)
+    fileOrder = {};
     const promises = [];
     zip.forEach((relativePath, zipEntry) => {
       if (zipEntry.dir) return;
       if (!relativePath.startsWith('chapters/')) return;
       const path = relativePath.slice('chapters/'.length);
-      if (!path || !path.endsWith('.md')) return;
-      promises.push(
-        zipEntry.async('string').then(content => {
-          files[path] = content;
-        })
-      );
+      if (!path) return;
+      if (path.endsWith('_order.yaml') || path.endsWith('_order.yml')) {
+        // Read ordering files
+        promises.push(
+          zipEntry.async('string').then(content => {
+            const dirPath = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+            fileOrder[dirPath] = yamlToOrder(content);
+          })
+        );
+      } else if (path.endsWith('.md')) {
+        promises.push(
+          zipEntry.async('string').then(content => {
+            files[path] = content;
+          })
+        );
+      }
     });
     await Promise.all(promises);
 
@@ -1091,6 +1344,15 @@ async function saveBacalhau() {
       chaptersFolder.file(path, content);
     }
 
+    // Write _order.yaml files to preserve ordering
+    rebuildOrderFromTree();
+    for (const [dirPath, order] of Object.entries(fileOrder)) {
+      if (order.length > 0) {
+        const yamlPath = dirPath ? dirPath + '/_order.yaml' : '_order.yaml';
+        chaptersFolder.file(yamlPath, orderToYaml(order));
+      }
+    }
+
     // Sync to FS and pack .git/ from the virtual filesystem
     await syncFilesToFS();
     await packGitToZip(zip);
@@ -1147,6 +1409,7 @@ async function closeProject() {
     if (!await bcConfirm('Close this project? Unsaved changes will be lost.')) return;
   }
   files = {};
+  fileOrder = {};
   tree = [];
   _preservedZip = null;
   _bacalhauFileHandle = null;
@@ -1165,6 +1428,7 @@ async function closeProject() {
 
 async function startNewProject() {
   files = { 'title.md': '# My Manuscript\n\n', '01-chapter.md': '### Chapter One\n\n' };
+  fileOrder = { '': ['title.md', '01-chapter.md'] };
   _preservedZip = null;
   projectName = 'New Project';
   activeFile = null;
@@ -1191,7 +1455,8 @@ async function startNewProject() {
 // ── LocalStorage persistence ─────────────────────────────────────────────────
 function saveToLocalStorage() {
   try {
-    const data = { files, projectName };
+    rebuildOrderFromTree();
+    const data = { files, projectName, fileOrder };
     localStorage.setItem('bc-project', JSON.stringify(data));
   } catch(e) {
     // Storage full or unavailable — silently ignore
@@ -1206,6 +1471,7 @@ function loadFromLocalStorage() {
     if (data.files && Object.keys(data.files).length > 0) {
       files = data.files;
       projectName = data.projectName || '';
+      fileOrder = data.fileOrder || {};
       return true;
     }
   } catch(e) {}
