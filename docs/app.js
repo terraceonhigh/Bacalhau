@@ -5,6 +5,7 @@
 // ── In-memory project state ─────────────────────────────────────────────────
 let tree = [];           // [{type:'file'|'dir', name, path, heading, writable, children?}]
 let files = {};          // path -> content (markdown strings)
+let _preservedZip = null; // original JSZip object — preserves .git/, latex/, etc.
 let projectName = '';
 let activeFile = null;
 let collapsed = JSON.parse(localStorage.getItem('bc-collapsed') || '{}');
@@ -780,6 +781,7 @@ async function openBacalhauFile(file) {
   setStatus('Opening ' + file.name + '...');
   try {
     const zip = await JSZip.loadAsync(file);
+    _preservedZip = zip;  // keep full archive for round-tripping .git/, latex/, etc.
     files = {};
     projectName = file.name.replace(/\.bacalhau$/, '');
 
@@ -787,9 +789,8 @@ async function openBacalhauFile(file) {
     const promises = [];
     zip.forEach((relativePath, zipEntry) => {
       if (zipEntry.dir) return;
-      // Only extract chapters/ files (skip .git/, latex/, etc.)
+      // Only extract chapters/ markdown files for editing
       if (!relativePath.startsWith('chapters/')) return;
-      // Strip "chapters/" prefix
       const path = relativePath.slice('chapters/'.length);
       if (!path || !path.endsWith('.md')) return;
       promises.push(
@@ -822,11 +823,14 @@ function handleSaveAs(fmt) {
 async function saveBacalhau() {
   setStatus('Saving .bacalhau...');
   try {
-    const zip = new JSZip();
+    // Start from the original ZIP if we have one (preserves .git/, latex/, etc.)
+    const zip = _preservedZip ? _preservedZip : new JSZip();
+
+    // Remove old chapters/ and replace with current state
+    zip.remove('chapters');
     const chaptersFolder = zip.folder('chapters');
 
     for (const [path, content] of Object.entries(files)) {
-      // Recreate directory structure inside chapters/
       chaptersFolder.file(path, content);
     }
 
@@ -879,6 +883,7 @@ async function exportMarkdown() {
 // ── New project ──────────────────────────────────────────────────────────────
 function startNewProject() {
   files = { 'title.md': '# My Manuscript\n\n', '01-chapter.md': '### Chapter One\n\n' };
+  _preservedZip = null;
   projectName = 'New Project';
   activeFile = null;
   loadTree();
