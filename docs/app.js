@@ -1573,7 +1573,6 @@ async function startNewProject() {
 // ── LocalStorage persistence ─────────────────────────────────────────────────
 function saveToLocalStorage() {
   try {
-    rebuildOrderFromTree();
     const data = { files, projectName, fileOrder };
     localStorage.setItem('bc-project', JSON.stringify(data));
   } catch(e) {
