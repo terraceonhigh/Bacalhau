@@ -1,16 +1,252 @@
 // ── Bacalhau Web Edition ─────────────────────────────────────────────────────
 // Fully client-side — no backend. .bacalhau files (ZIP) are opened/saved via
 // the browser File API + JSZip. All state lives in memory.
+// Git history via isomorphic-git on a LightningFS virtual filesystem.
 
 // ── In-memory project state ─────────────────────────────────────────────────
 let tree = [];           // [{type:'file'|'dir', name, path, heading, writable, children?}]
 let files = {};          // path -> content (markdown strings)
-let _preservedZip = null; // original JSZip object — preserves .git/, latex/, etc.
+let _preservedZip = null; // original JSZip object — preserves latex/, etc.
 let projectName = '';
 let activeFile = null;
 let collapsed = JSON.parse(localStorage.getItem('bc-collapsed') || '{}');
 let dragItem = null;
 let _bacalhauFileHandle = null;
+let currentPanel = 'files';
+let gitLog = [];
+
+// ── Virtual filesystem + isomorphic-git ─────────────────────────────────────
+const fs = new LightningFS('bacalhau');
+const pfs = fs.promises;
+const git = window.git; // isomorphic-git UMD global
+const PROJECT_DIR = '/project';
+const CHAPTERS_DIR = '/project/chapters';
+
+// Write all in-memory files to the virtual FS (chapters/ subdir)
+async function syncFilesToFS() {
+  // Ensure project and chapters dirs exist
+  await mkdirp(PROJECT_DIR);
+  await mkdirp(CHAPTERS_DIR);
+
+  // Remove old chapters/ contents
+  await rmrf(CHAPTERS_DIR);
+  await mkdirp(CHAPTERS_DIR);
+
+  for (const [path, content] of Object.entries(files)) {
+    const fullPath = CHAPTERS_DIR + '/' + path;
+    const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
+    await mkdirp(dir);
+    await pfs.writeFile(fullPath, content, 'utf8');
+  }
+}
+
+// Read all chapters/ files from virtual FS back into memory
+async function syncFilesFromFS() {
+  files = {};
+  await readDirRecursive(CHAPTERS_DIR, '');
+}
+
+async function readDirRecursive(fsPath, prefix) {
+  let entries;
+  try { entries = await pfs.readdir(fsPath); } catch(e) { return; }
+  for (const name of entries) {
+    if (name.startsWith('.')) continue;
+    const full = fsPath + '/' + name;
+    const rel = prefix ? prefix + '/' + name : name;
+    const stat = await pfs.stat(full);
+    if (stat.isDirectory()) {
+      await readDirRecursive(full, rel);
+    } else if (name.endsWith('.md')) {
+      const content = await pfs.readFile(full, 'utf8');
+      files[rel] = content;
+    }
+  }
+}
+
+// Extract .git/ directory from a JSZip into the virtual FS
+async function extractGitFromZip(zip) {
+  const gitEntries = [];
+  zip.forEach((path, entry) => {
+    if (path.startsWith('.git/') || path === '.git') {
+      gitEntries.push({ path, entry });
+    }
+  });
+  if (gitEntries.length === 0) return false;
+
+  for (const { path, entry } of gitEntries) {
+    const fullPath = PROJECT_DIR + '/' + path;
+    if (entry.dir) {
+      await mkdirp(fullPath);
+    } else {
+      const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
+      await mkdirp(dir);
+      const data = await entry.async('uint8array');
+      await pfs.writeFile(fullPath, data);
+    }
+  }
+  return true;
+}
+
+// Pack .git/ directory from virtual FS into a JSZip
+async function packGitToZip(zip) {
+  const gitPath = PROJECT_DIR + '/.git';
+  try { await pfs.stat(gitPath); } catch(e) { return; } // no .git
+  await packDirToZip(zip, gitPath, '.git');
+}
+
+async function packDirToZip(zip, fsPath, arcPrefix) {
+  let entries;
+  try { entries = await pfs.readdir(fsPath); } catch(e) { return; }
+  for (const name of entries) {
+    const full = fsPath + '/' + name;
+    const arc = arcPrefix + '/' + name;
+    const stat = await pfs.stat(full);
+    if (stat.isDirectory()) {
+      await packDirToZip(zip, full, arc);
+    } else {
+      const data = await pfs.readFile(full);
+      zip.file(arc, data);
+    }
+  }
+}
+
+// FS helpers
+async function mkdirp(path) {
+  const parts = path.split('/').filter(Boolean);
+  let current = '';
+  for (const part of parts) {
+    current += '/' + part;
+    try { await pfs.mkdir(current); } catch(e) { /* exists */ }
+  }
+}
+
+async function rmrf(path) {
+  let stat;
+  try { stat = await pfs.stat(path); } catch(e) { return; }
+  if (stat.isDirectory()) {
+    const entries = await pfs.readdir(path);
+    for (const name of entries) {
+      await rmrf(path + '/' + name);
+    }
+    await pfs.rmdir(path);
+  } else {
+    await pfs.unlink(path);
+  }
+}
+
+// Initialize git repo if not already one
+async function ensureGitRepo() {
+  try {
+    await pfs.stat(PROJECT_DIR + '/.git');
+    return; // already a repo
+  } catch(e) {
+    // not a repo — init
+  }
+  await git.init({ fs, dir: PROJECT_DIR });
+  // Set author config
+}
+
+// Stage all chapters/ and commit
+async function gitStageAll() {
+  // Sync current editor content to FS first
+  await syncFilesToFS();
+
+  // Stage all files in chapters/
+  const allFiles = [];
+  await collectPaths(CHAPTERS_DIR, 'chapters', allFiles);
+
+  // Also check for deleted files
+  const statusMatrix = await git.statusMatrix({ fs, dir: PROJECT_DIR });
+  for (const [filepath, head, workdir, stage] of statusMatrix) {
+    if (workdir === 0) {
+      // File was deleted
+      await git.remove({ fs, dir: PROJECT_DIR, filepath });
+    } else {
+      await git.add({ fs, dir: PROJECT_DIR, filepath });
+    }
+  }
+}
+
+async function collectPaths(fsPath, prefix, result) {
+  let entries;
+  try { entries = await pfs.readdir(fsPath); } catch(e) { return; }
+  for (const name of entries) {
+    if (name.startsWith('.')) continue;
+    const full = fsPath + '/' + name;
+    const rel = prefix + '/' + name;
+    const stat = await pfs.stat(full);
+    if (stat.isDirectory()) {
+      await collectPaths(full, rel, result);
+    } else {
+      result.push(rel);
+    }
+  }
+}
+
+// Get git status for the Git panel
+async function getGitStatus() {
+  try {
+    await pfs.stat(PROJECT_DIR + '/.git');
+  } catch(e) {
+    return { is_repo: false, files: [] };
+  }
+
+  await syncFilesToFS();
+
+  const matrix = await git.statusMatrix({ fs, dir: PROJECT_DIR });
+  const statusFiles = [];
+  for (const [filepath, head, workdir, stage] of matrix) {
+    // head: 0=absent, 1=present
+    // workdir: 0=absent, 1=unchanged, 2=modified
+    // stage: 0=absent, 1=unchanged, 2=added, 3=modified
+    let status = '';
+    let staged = false;
+
+    if (head === 0 && workdir === 2 && stage === 0) { status = '?'; staged = false; }
+    else if (head === 0 && workdir === 2 && stage === 2) { status = 'A'; staged = true; }
+    else if (head === 1 && workdir === 2 && stage === 1) { status = 'M'; staged = false; }
+    else if (head === 1 && workdir === 2 && stage === 3) { status = 'M'; staged = true; }
+    else if (head === 1 && workdir === 0 && stage === 0) { status = 'D'; staged = true; }
+    else if (head === 1 && workdir === 0 && stage === 1) { status = 'D'; staged = false; }
+    else if (head === 1 && workdir === 1 && stage === 1) { continue; } // clean
+    else if (head === 0 && workdir === 0 && stage === 0) { continue; } // gone
+    else { status = 'M'; staged = (stage !== 1); }
+
+    // Strip chapters/ prefix for display
+    const display = filepath.startsWith('chapters/') ? filepath.slice(9) : filepath;
+    statusFiles.push({ path: display, status, staged });
+  }
+
+  return { is_repo: true, files: statusFiles };
+}
+
+// Get git log
+async function getGitLog() {
+  try {
+    const commits = await git.log({ fs, dir: PROJECT_DIR, depth: 20 });
+    return commits.map(c => ({
+      sha: c.oid,
+      short: c.oid.slice(0, 7),
+      message: c.commit.message.split('\n')[0],
+      when: timeAgo(c.commit.author.timestamp * 1000)
+    }));
+  } catch(e) {
+    return [];
+  }
+}
+
+function timeAgo(ts) {
+  const seconds = Math.floor((Date.now() - ts) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return minutes + ' minute' + (minutes === 1 ? '' : 's') + ' ago';
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + ' hour' + (hours === 1 ? '' : 's') + ' ago';
+  const days = Math.floor(hours / 24);
+  if (days < 30) return days + ' day' + (days === 1 ? '' : 's') + ' ago';
+  const months = Math.floor(days / 30);
+  return months + ' month' + (months === 1 ? '' : 's') + ' ago';
+}
 
 // ── Confirm dialog ──────────────────────────────────────────────────────────
 function bcConfirm(msg) {
@@ -781,7 +1017,7 @@ async function openBacalhauFile(file) {
   setStatus('Opening ' + file.name + '...');
   try {
     const zip = await JSZip.loadAsync(file);
-    _preservedZip = zip;  // keep full archive for round-tripping .git/, latex/, etc.
+    _preservedZip = zip;  // keep full archive for round-tripping latex/, etc.
     files = {};
     projectName = file.name.replace(/\.bacalhau$/, '');
 
@@ -789,7 +1025,6 @@ async function openBacalhauFile(file) {
     const promises = [];
     zip.forEach((relativePath, zipEntry) => {
       if (zipEntry.dir) return;
-      // Only extract chapters/ markdown files for editing
       if (!relativePath.startsWith('chapters/')) return;
       const path = relativePath.slice('chapters/'.length);
       if (!path || !path.endsWith('.md')) return;
@@ -806,9 +1041,30 @@ async function openBacalhauFile(file) {
       return;
     }
 
+    // Wipe the virtual FS and set up fresh
+    await rmrf(PROJECT_DIR);
+    await mkdirp(PROJECT_DIR);
+    await syncFilesToFS();
+
+    // Extract .git/ from the ZIP if present
+    const hadGit = await extractGitFromZip(zip);
+    if (!hadGit) {
+      // Initialize a fresh repo and make an initial commit
+      await ensureGitRepo();
+      await gitStageAll();
+      try {
+        await git.commit({
+          fs, dir: PROJECT_DIR,
+          message: 'Imported from ' + file.name,
+          author: { name: 'Bacalhau Web', email: 'web@bacalhau.app' }
+        });
+      } catch(e) { /* empty commit if no files */ }
+    }
+
     loadTree();
     setStatus('Opened ' + file.name + ' (' + Object.keys(files).length + ' files)');
     saveToLocalStorage();
+    refreshGit();
   } catch(e) {
     setStatus('Open failed: ' + e.message);
   }
@@ -823,16 +1079,21 @@ function handleSaveAs(fmt) {
 async function saveBacalhau() {
   setStatus('Saving .bacalhau...');
   try {
-    // Start from the original ZIP if we have one (preserves .git/, latex/, etc.)
+    // Start from the original ZIP if we have one (preserves latex/, etc.)
     const zip = _preservedZip ? _preservedZip : new JSZip();
 
-    // Remove old chapters/ and replace with current state
+    // Remove old chapters/ and .git/, replace with current state
     zip.remove('chapters');
-    const chaptersFolder = zip.folder('chapters');
+    zip.remove('.git');
 
+    const chaptersFolder = zip.folder('chapters');
     for (const [path, content] of Object.entries(files)) {
       chaptersFolder.file(path, content);
     }
+
+    // Sync to FS and pack .git/ from the virtual filesystem
+    await syncFilesToFS();
+    await packGitToZip(zip);
 
     const blob = await zip.generateAsync({type: 'blob'});
     const filename = (projectName || 'project') + '.bacalhau';
@@ -881,13 +1142,29 @@ async function exportMarkdown() {
 }
 
 // ── New project ──────────────────────────────────────────────────────────────
-function startNewProject() {
+async function startNewProject() {
   files = { 'title.md': '# My Manuscript\n\n', '01-chapter.md': '### Chapter One\n\n' };
   _preservedZip = null;
   projectName = 'New Project';
   activeFile = null;
+
+  // Set up virtual FS with a fresh git repo
+  await rmrf(PROJECT_DIR);
+  await mkdirp(PROJECT_DIR);
+  await syncFilesToFS();
+  await ensureGitRepo();
+  await gitStageAll();
+  try {
+    await git.commit({
+      fs, dir: PROJECT_DIR,
+      message: 'New project',
+      author: { name: 'Bacalhau Web', email: 'web@bacalhau.app' }
+    });
+  } catch(e) { /* empty */ }
+
   loadTree();
   saveToLocalStorage();
+  refreshGit();
 }
 
 // ── LocalStorage persistence ─────────────────────────────────────────────────
@@ -1133,10 +1410,250 @@ document.getElementById('previewPane').addEventListener('scroll', () => {
 
 // ── Sidebar panel switcher ───────────────────────────────────────────────────
 function switchPanel(panel) {
+  currentPanel = panel;
   document.getElementById('tree').style.display = panel === 'files' ? '' : 'none';
+  document.getElementById('gitPanel').style.display = panel === 'git' ? '' : 'none';
   document.querySelectorAll('.sidebar-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.panel === panel);
   });
+  if (panel === 'git') refreshGit();
+}
+
+// ── Git panel ────────────────────────────────────────────────────────────────
+async function refreshGit() {
+  const status = await getGitStatus();
+  gitLog = await getGitLog();
+  renderGitPanel(status);
+  updateGitBadge(status);
+}
+
+function updateGitBadge(status) {
+  const badge = document.getElementById('gitBadge');
+  if (!badge) return;
+  if (!status || !status.is_repo) { badge.style.display = 'none'; return; }
+  const count = status.files.length;
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function renderGitPanel(status) {
+  const el = document.getElementById('gitContent');
+  if (!el) return;
+
+  if (!status || !status.is_repo) {
+    el.innerHTML = '<div class="git-message">No repository found.<br><br><button class="primary" onclick="gitInit()" style="width:auto;padding:8px 20px;">Initialize Repository</button></div>';
+    return;
+  }
+
+  const staged = status.files.filter(f => f.staged);
+  const unstaged = status.files.filter(f => !f.staged);
+  let html = '';
+
+  // Staged changes
+  html += '<div class="git-section-header"><span>Staged Changes (' + staged.length + ')</span>';
+  if (staged.length > 0) html += '<button onclick="gitUnstageAll()">Unstage All</button>';
+  html += '</div>';
+  for (const f of staged) {
+    const badgeClass = f.status === '?' ? 'Q' : f.status;
+    html += '<div class="git-file">';
+    html += '<span class="git-badge ' + esc(badgeClass) + '">' + esc(f.status) + '</span>';
+    html += '<span class="git-path" title="' + esc(f.path) + '">' + esc(f.path.split('/').pop()) + '</span>';
+    html += '<button class="git-action" onclick="gitUnstageFile(\'' + esc(f.path).replace(/'/g, "\\'") + '\')" title="Unstage">\u2212</button>';
+    html += '</div>';
+  }
+
+  // Unstaged changes
+  html += '<div class="git-section-header"><span>Changes (' + unstaged.length + ')</span>';
+  if (unstaged.length > 0) html += '<button onclick="gitStageAllFiles()">Stage All</button>';
+  html += '</div>';
+  for (const f of unstaged) {
+    const badgeClass = f.status === '?' ? 'Q' : f.status;
+    html += '<div class="git-file">';
+    html += '<span class="git-badge ' + esc(badgeClass) + '">' + esc(f.status) + '</span>';
+    html += '<span class="git-path" title="' + esc(f.path) + '">' + esc(f.path.split('/').pop()) + '</span>';
+    html += '<button class="git-action" onclick="gitStageFile(\'' + esc(f.path).replace(/'/g, "\\'") + '\')" title="Stage">+</button>';
+    html += '</div>';
+  }
+
+  // Commit area
+  html += '<div class="git-commit-area">';
+  html += '<input type="text" id="gitCommitMsg" placeholder="Commit message" onkeydown="if(event.key===\'Enter\')gitCommit()">';
+  html += '<button class="primary" onclick="gitCommit()">Commit</button>';
+  html += '</div>';
+
+  // History
+  if (gitLog.length > 0) {
+    html += '<div class="git-history">';
+    html += '<div class="git-section-header"><span>History</span></div>';
+    for (const c of gitLog) {
+      html += '<div class="git-commit-item">';
+      html += '<div class="git-commit-msg">' + esc(c.message) + '</div>';
+      html += '<div class="git-commit-meta">';
+      html += '<span class="git-commit-when">' + esc(c.when) + '</span>';
+      html += '<button class="git-action" onclick="gitRestore(\'' + esc(c.sha) + '\')" title="Restore to this version">restore</button>';
+      html += '</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  el.innerHTML = html;
+}
+
+async function gitInit() {
+  setStatus('Initializing repository...');
+  await ensureGitRepo();
+  await gitStageAll();
+  try {
+    await git.commit({
+      fs, dir: PROJECT_DIR,
+      message: 'Initial commit',
+      author: { name: 'Bacalhau Web', email: 'web@bacalhau.app' }
+    });
+  } catch(e) { /* empty */ }
+  setStatus('Repository initialized');
+  refreshGit();
+}
+
+async function gitStageAllFiles() {
+  await syncFilesToFS();
+  const matrix = await git.statusMatrix({ fs, dir: PROJECT_DIR });
+  for (const [filepath, head, workdir, stage] of matrix) {
+    if (workdir === 0) {
+      await git.remove({ fs, dir: PROJECT_DIR, filepath });
+    } else if (workdir !== 1 || stage !== 1) {
+      await git.add({ fs, dir: PROJECT_DIR, filepath });
+    }
+  }
+  refreshGit();
+}
+
+async function gitStageFile(path) {
+  await syncFilesToFS();
+  const filepath = 'chapters/' + path;
+  try {
+    await pfs.stat(CHAPTERS_DIR + '/' + path);
+    await git.add({ fs, dir: PROJECT_DIR, filepath });
+  } catch(e) {
+    await git.remove({ fs, dir: PROJECT_DIR, filepath });
+  }
+  refreshGit();
+}
+
+async function gitUnstageAll() {
+  const matrix = await git.statusMatrix({ fs, dir: PROJECT_DIR });
+  for (const [filepath, head, workdir, stage] of matrix) {
+    if (stage !== 1) {
+      // Reset to HEAD state
+      await git.resetIndex({ fs, dir: PROJECT_DIR, filepath });
+    }
+  }
+  refreshGit();
+}
+
+async function gitUnstageFile(path) {
+  const filepath = 'chapters/' + path;
+  await git.resetIndex({ fs, dir: PROJECT_DIR, filepath });
+  refreshGit();
+}
+
+async function gitCommit() {
+  const input = document.getElementById('gitCommitMsg');
+  const msg = input.value.trim();
+  if (!msg) { setStatus('Commit message required'); return; }
+
+  // Auto-stage everything (writer-friendly, same as desktop app)
+  await gitStageAllFiles();
+
+  try {
+    const sha = await git.commit({
+      fs, dir: PROJECT_DIR,
+      message: msg,
+      author: { name: 'Bacalhau Web', email: 'web@bacalhau.app' }
+    });
+    input.value = '';
+    setStatus('Committed ' + sha.slice(0, 7));
+  } catch(e) {
+    setStatus('Commit failed: ' + e.message);
+  }
+  refreshGit();
+}
+
+async function gitRestore(sha) {
+  if (!await bcConfirm('Restore your manuscript to this version? Current text will be saved as a checkpoint first.')) return;
+
+  // Auto-save current state
+  await syncFilesToFS();
+  await gitStageAllFiles();
+  try {
+    const status = await getGitStatus();
+    if (status.files.length > 0) {
+      await git.commit({
+        fs, dir: PROJECT_DIR,
+        message: 'Auto-save before restore',
+        author: { name: 'Bacalhau Web', email: 'web@bacalhau.app' }
+      });
+    }
+  } catch(e) { /* nothing to commit */ }
+
+  // Checkout chapters/ from that commit
+  try {
+    // Read the tree at that commit
+    const { commit: commitObj } = await git.readCommit({ fs, dir: PROJECT_DIR, oid: sha });
+    const rootTree = await git.readTree({ fs, dir: PROJECT_DIR, oid: commitObj.tree });
+
+    // Find chapters/ subtree
+    const chaptersEntry = rootTree.tree.find(e => e.path === 'chapters');
+    if (!chaptersEntry) {
+      setStatus('No chapters/ found in that commit');
+      return;
+    }
+
+    // Clear and rewrite chapters/ from that tree
+    await rmrf(CHAPTERS_DIR);
+    await mkdirp(CHAPTERS_DIR);
+    await restoreTreeToFS(chaptersEntry.oid, CHAPTERS_DIR);
+
+    // Read back into memory
+    await syncFilesFromFS();
+
+    // Stage and commit the restore
+    await gitStageAllFiles();
+    const origMsg = gitLog.find(c => c.sha === sha);
+    const restoreMsg = 'Restored to: ' + (origMsg ? origMsg.message : sha.slice(0, 7));
+    try {
+      await git.commit({
+        fs, dir: PROJECT_DIR,
+        message: restoreMsg,
+        author: { name: 'Bacalhau Web', email: 'web@bacalhau.app' }
+      });
+    } catch(e) { /* nothing changed */ }
+
+    loadTree();
+    setStatus(restoreMsg);
+    refreshGit();
+    saveToLocalStorage();
+  } catch(e) {
+    setStatus('Restore failed: ' + e.message);
+  }
+}
+
+async function restoreTreeToFS(oid, fsPath) {
+  const { tree: entries } = await git.readTree({ fs, dir: PROJECT_DIR, oid });
+  for (const entry of entries) {
+    const full = fsPath + '/' + entry.path;
+    if (entry.type === 'tree') {
+      await mkdirp(full);
+      await restoreTreeToFS(entry.oid, full);
+    } else if (entry.type === 'blob') {
+      const { blob } = await git.readBlob({ fs, dir: PROJECT_DIR, oid: entry.oid });
+      await pfs.writeFile(full, blob);
+    }
+  }
 }
 
 // ── Resizable panes ──────────────────────────────────────────────────────────
@@ -1207,11 +1724,15 @@ if (typeof ResizeObserver !== 'undefined') {
 loadThemes();
 
 // Try to restore previous session from localStorage
-if (loadFromLocalStorage()) {
-  loadTree();
-  setStatus('Restored previous session');
-} else {
-  // Show welcome overlay (already visible via HTML)
-}
+(async function init() {
+  if (loadFromLocalStorage()) {
+    loadTree();
+    // Sync to virtual FS — git history persists in IndexedDB via LightningFS
+    await syncFilesToFS();
+    setStatus('Restored previous session');
+    refreshGit();
+  }
+  // else: show welcome overlay (already visible via HTML)
+})();
 
 setTimeout(renderTiling, 500);
