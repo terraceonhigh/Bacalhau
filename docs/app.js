@@ -733,6 +733,28 @@ function clearAllDragState() {
   document.querySelectorAll('.drag-hover').forEach(el => el.classList.remove('drag-hover'));
 }
 
+// Ensure fileOrder[dir] contains ALL entries in current display order.
+// This materializes the implicit ordering (from buildTreeFromFiles) so that
+// drag-and-drop works even when _order.yaml was absent or incomplete.
+function ensureFullOrder(dirPath) {
+  const dirKey = dirPath || '';
+  // Find the tree node for this directory
+  let nodes;
+  if (dirKey === '') {
+    nodes = tree;
+  } else {
+    const dirNode = findNode(tree, dirKey);
+    nodes = dirNode ? dirNode.children || [] : [];
+  }
+  // Build full order from current tree (which reflects display order)
+  const fullOrder = [];
+  for (const n of nodes) {
+    fullOrder.push(n.type === 'dir' ? n.name + '/' : n.name);
+  }
+  fileOrder[dirKey] = fullOrder;
+  return fullOrder;
+}
+
 function onDrop(targetDir, position) {
   if (!dragItem) return;
   if (dragItem.path === targetDir) return;
@@ -746,8 +768,8 @@ function onDrop(targetDir, position) {
   const sameDir = srcParent === targetDir;
 
   if (sameDir) {
-    // Reorder within the same directory
-    let order = (fileOrder[srcParent] || []).slice();
+    // Materialize full order before reordering
+    let order = ensureFullOrder(srcParent).slice();
     const oldIdx = order.indexOf(entryName);
     if (oldIdx >= 0) order.splice(oldIdx, 1);
     let insertPos = position;
@@ -760,8 +782,8 @@ function onDrop(targetDir, position) {
     setOrder(srcParent, order);
   } else {
     // Move between directories
-    // Remove from source order
-    let srcOrder = (fileOrder[srcParent] || []).slice();
+    // Materialize and remove from source order
+    let srcOrder = ensureFullOrder(srcParent).slice();
     srcOrder = srcOrder.filter(e => e !== entryName);
     setOrder(srcParent, srcOrder);
 
@@ -792,7 +814,8 @@ function onDrop(targetDir, position) {
       fileOrder = newOrder;
     }
 
-    // Add to destination order
+    // Add to destination order (materialize first)
+    ensureFullOrder(targetDir);
     let destOrder = (fileOrder[targetDir] || []).slice();
     destOrder = destOrder.filter(e => e !== entryName);
     if (position >= 0 && position < destOrder.length) {
