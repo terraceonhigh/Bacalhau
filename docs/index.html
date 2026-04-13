@@ -1,24 +1,94 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bacalhau</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-            max-width: 640px;
-            margin: 80px auto;
-            padding: 0 20px;
-            color: #1a1a1a;
-            line-height: 1.6;
-        }
-        h1 { font-size: 2rem; margin-bottom: 0.25em; }
-        p { color: #555; }
-    </style>
+<meta charset="utf-8">
+<title>Bacalhau</title>
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="stylesheet" href="style.css">
+<link id="theme-css" rel="stylesheet" href="">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="markdown-it.min.js"></script>
 </head>
 <body>
-    <h1>Bacalhau</h1>
-    <p>A zero-dependency manuscript editor for writers.</p>
+<div class="sidebar">
+  <div class="sidebar-header">
+    <canvas id="tilingCanvas"></canvas>
+    <div class="sidebar-header-content">
+      <img src="icon.png" alt="">
+      <div>
+        <h1>Bacalhau</h1>
+        <p id="projectName"></p>
+      </div>
+    </div>
+  </div>
+  <div class="sidebar-tabs">
+    <button class="sidebar-tab active" data-panel="files" onclick="switchPanel('files')">Files</button>
+  </div>
+  <div class="tree" id="tree"></div>
+  <div class="sidebar-footer">
+    <div class="sidebar-add-row">
+      <button class="sidebar-add-btn" onclick="newFile('')">+ file</button>
+      <button class="sidebar-add-btn" onclick="newDir('')">+ folder</button>
+    </div>
+    <input type="file" id="openInput" accept=".bacalhau" style="display:none" onchange="handleOpenFile(this)">
+    <select id="openSelect" onchange="handleOpen(this.value); this.value='';" style="width:100%;padding:6px 14px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;cursor:pointer;">
+      <option value="" disabled selected>Open...</option>
+      <option value="bacalhau">.bacalhau file</option>
+    </select>
+    <select id="themeSelect" onchange="switchTheme(this.value)" style="width:100%;padding:5px;background:var(--bg3);color:var(--fg);border:1px solid var(--border);border-radius:3px;font-size:12px;">
+      <option value="">No theme</option>
+    </select>
+    <select id="saveAs" onchange="handleSaveAs(this.value); this.value='';" style="width:100%;padding:6px 14px;background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:3px;font-size:12px;cursor:pointer;">
+      <option value="" disabled selected>Save As...</option>
+      <option value="bacalhau">.bacalhau</option>
+      <option value="md">.md</option>
+    </select>
+    <div class="word-count" id="wordCount"></div>
+    <div class="status" id="status"></div>
+  </div>
+</div>
+<div class="resize-handle" id="resizeSidebar"></div>
+
+<div class="editor-pane" id="editorPane">
+  <div class="editor-scroll" id="editorScroll"></div>
+</div>
+
+<div id="welcomeOverlay" class="welcome-overlay" style="display:flex">
+  <div class="welcome-card">
+    <h2 style="color:var(--fg);margin:0 0 8px;font-size:22px;">Bacalhau</h2>
+    <p style="color:var(--fg2);margin:0 0 20px;font-size:13px;">Open a manuscript to get started.</p>
+    <button style="margin:4px;padding:10px 24px;" onclick="handleOpen('bacalhau')">Open .bacalhau</button>
+    <button style="margin:4px;padding:10px 24px;" onclick="startNewProject()">New Project</button>
+  </div>
+</div>
+
+<div id="aboutOverlay" class="browse-overlay" style="display:none">
+  <div class="browse-modal" style="width:340px;">
+    <div class="browse-header">
+      <span class="browse-title">About Bacalhau</span>
+      <button class="browse-close" onclick="document.getElementById('aboutOverlay').style.display='none'">&times;</button>
+    </div>
+    <div style="padding:20px;text-align:center;">
+      <img src="icon.png" style="width:64px;height:64px;border-radius:8px;margin-bottom:12px;">
+      <h2 style="font-size:18px;color:var(--fg);margin:0 0 4px;">Bacalhau</h2>
+      <div style="font-size:12px;color:var(--fg3);margin-bottom:16px;">Web Edition</div>
+      <p style="font-size:12px;color:var(--fg2);line-height:1.5;">A manuscript editor for long-form writing.<br>No server required — runs entirely in your browser.</p>
+    </div>
+  </div>
+</div>
+
+<div class="resize-handle" id="resizeEditor"></div>
+<div class="sync-bar">
+  <button class="sync-btn" title="Scroll preview to current chapter" onclick="syncEditorToPreview()">&#x25B6;</button>
+  <button class="sync-btn toggle" id="syncToggle" title="Toggle linked scrolling" onclick="toggleSync()">
+    <span id="syncIcon">&#x1F517;</span>
+  </button>
+  <button class="sync-btn" title="Load visible chapter in editor" onclick="syncPreviewToEditor()">&#x25C0;</button>
+</div>
+
+<div class="preview-pane" id="previewPane">
+  <div class="preview-content" id="preview"></div>
+</div>
+<script src="app.js"></script>
 </body>
 </html>

@@ -1,0 +1,19 @@
+/* Azulejo Dark — white ceramic on deep Portuguese blue */
+:root {
+  --bg: #0a1628;
+  --bg2: #0e1e35;
+  --bg3: #142744;
+  --bg4: #1a3155;
+  --fg: #e8e4dc;
+  --fg2: #a0b4d0;
+  --fg3: #4a6585;
+  --accent: #6a9fd8;
+  --gold: #c4a44a;
+  --purple: #9a8ac0;
+  --green: #1a4a3a;
+  --green2: #2a6a4a;
+  --border: #1e3a5c;
+}
+
+.preview-content h2 { color: #6a9fd8; }
+.preview-content hr::after { color: #4a6585; }

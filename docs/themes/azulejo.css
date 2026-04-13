@@ -1,0 +1,21 @@
+/* Azulejo Light — Portuguese blue tile on white ceramic */
+:root {
+  --bg: #f4f1ec;
+  --bg2: #ebe7e0;
+  --bg3: #e0dbd3;
+  --bg4: #d5d0c8;
+  --fg: #1a2744;
+  --fg2: #3d5a8a;
+  --fg3: #8a9bb8;
+  --accent: #2b5fa0;
+  --gold: #b8963e;
+  --purple: #6a5a8e;
+  --green: #3a6a4a;
+  --green2: #4a8a5a;
+  --border: #c8c2b8;
+}
+
+textarea#editor { color: #1a2744; }
+
+.preview-content h2 { color: #2b5fa0; }
+.preview-content hr::after { color: #2b5fa0; }
