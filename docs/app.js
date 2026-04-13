@@ -249,6 +249,95 @@ function timeAgo(ts) {
   return months + ' month' + (months === 1 ? '' : 's') + ' ago';
 }
 
+// ── Debug logging ────────────────────────────────────────────────────────────
+const _debugLog = [];
+const MAX_LOG = 500;
+function dbg(category, msg, data) {
+  const entry = { ts: new Date().toISOString(), cat: category, msg };
+  if (data !== undefined) entry.data = JSON.parse(JSON.stringify(data));
+  _debugLog.push(entry);
+  if (_debugLog.length > MAX_LOG) _debugLog.shift();
+  console.log('[' + category + '] ' + msg, data !== undefined ? data : '');
+}
+
+function copyDebugLog() {
+  const text = _debugLog.map(e => {
+    let line = e.ts + ' [' + e.cat + '] ' + e.msg;
+    if (e.data !== undefined) line += ' ' + JSON.stringify(e.data);
+    return line;
+  }).join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    setStatus('Copied ' + _debugLog.length + ' log entries');
+  }).catch(() => {
+    // Fallback: open in a textarea overlay
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:16px;width:80%;max-height:80%;display:flex;flex-direction:column;gap:8px;';
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.readOnly = true;
+    ta.style.cssText = 'flex:1;min-height:300px;background:var(--bg2);color:var(--fg);border:1px solid var(--border);border-radius:3px;padding:8px;font-family:monospace;font-size:11px;';
+    const btn = document.createElement('button');
+    btn.textContent = 'Close';
+    btn.onclick = () => document.body.removeChild(overlay);
+    box.appendChild(ta);
+    box.appendChild(btn);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    ta.select();
+  });
+}
+
+function showDebugPanel() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:16px;width:500px;max-height:80vh;display:flex;flex-direction:column;gap:8px;';
+  box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;">'
+    + '<span style="font-size:14px;font-weight:600;color:var(--fg);">Debug</span>'
+    + '<button id="dbgClose" style="width:auto;padding:2px 8px;background:transparent;border:none;color:var(--fg3);font-size:18px;cursor:pointer;">&times;</button></div>'
+    + '<div style="display:flex;gap:6px;">'
+    + '<button id="dbgCopy" style="flex:1;">Copy Logs (' + _debugLog.length + ')</button>'
+    + '<button id="dbgClear" style="flex:1;">Clear Logs</button>'
+    + '<button id="dbgState" style="flex:1;">Copy State</button></div>'
+    + '<div id="dbgEntries" style="flex:1;overflow-y:auto;max-height:50vh;font-family:monospace;font-size:10px;color:var(--fg2);white-space:pre-wrap;background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:8px;"></div>';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  overlay.onclick = (e) => { if (e.target === overlay) document.body.removeChild(overlay); };
+  box.querySelector('#dbgClose').onclick = () => document.body.removeChild(overlay);
+  box.querySelector('#dbgCopy').onclick = () => { copyDebugLog(); };
+  box.querySelector('#dbgClear').onclick = () => { _debugLog.length = 0; box.querySelector('#dbgEntries').textContent = '(cleared)'; box.querySelector('#dbgCopy').textContent = 'Copy Logs (0)'; };
+  box.querySelector('#dbgState').onclick = () => {
+    const state = {
+      fileOrder,
+      fileKeys: Object.keys(files),
+      treeShape: treeToDebug(tree),
+      activeFile,
+      projectName,
+    };
+    navigator.clipboard.writeText(JSON.stringify(state, null, 2)).then(() => setStatus('Copied state'));
+  };
+  // Render entries
+  const el = box.querySelector('#dbgEntries');
+  const recent = _debugLog.slice(-200);
+  el.textContent = recent.map(e => {
+    let line = e.ts.slice(11, 23) + ' [' + e.cat + '] ' + e.msg;
+    if (e.data !== undefined) line += '\n  ' + JSON.stringify(e.data);
+    return line;
+  }).join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+function treeToDebug(nodes, depth) {
+  depth = depth || 0;
+  return nodes.map(n => {
+    const indent = '  '.repeat(depth);
+    if (n.type === 'dir') return indent + n.name + '/\n' + treeToDebug(n.children || [], depth + 1);
+    return indent + n.name;
+  }).join('\n');
+}
+
 // ── Confirm dialog ──────────────────────────────────────────────────────────
 function bcConfirm(msg) {
   return new Promise(resolve => {
@@ -556,7 +645,9 @@ function countFiles(node) {
 
 // ── Load tree + editor + preview from in-memory state ────────────────────────
 function loadTree() {
+  dbg('tree', 'loadTree called', { fileOrderKeys: Object.keys(fileOrder), fileOrder });
   tree = buildTreeFromFiles();
+  dbg('tree', 'tree built', { shape: treeToDebug(tree) });
   const pn = document.getElementById('projectName');
   if (pn) pn.textContent = projectName;
   document.getElementById('welcomeOverlay').style.display = 'none';
@@ -756,9 +847,10 @@ function ensureFullOrder(dirPath) {
 }
 
 function onDrop(targetDir, position) {
-  if (!dragItem) return;
-  if (dragItem.path === targetDir) return;
-  if (dragItem.type === 'dir' && targetDir.startsWith(dragItem.path + '/')) return;
+  dbg('dnd', 'onDrop called', { targetDir, position, dragItem });
+  if (!dragItem) { dbg('dnd', 'no dragItem, returning'); return; }
+  if (dragItem.path === targetDir) { dbg('dnd', 'dropped on self, returning'); return; }
+  if (dragItem.type === 'dir' && targetDir.startsWith(dragItem.path + '/')) { dbg('dnd', 'dropped dir into own subtree, returning'); return; }
 
   const srcPath = dragItem.path;
   const srcName = srcPath.split('/').pop();
@@ -766,10 +858,12 @@ function onDrop(targetDir, position) {
   const entryName = dragItem.type === 'dir' ? srcName + '/' : srcName;
 
   const sameDir = srcParent === targetDir;
+  dbg('dnd', 'move details', { srcPath, srcName, srcParent, entryName, sameDir });
 
   if (sameDir) {
     // Materialize full order before reordering
     let order = ensureFullOrder(srcParent).slice();
+    dbg('dnd', 'same-dir reorder, full order', { order, entryName, position });
     const oldIdx = order.indexOf(entryName);
     if (oldIdx >= 0) order.splice(oldIdx, 1);
     let insertPos = position;
@@ -779,6 +873,7 @@ function onDrop(targetDir, position) {
       insertPos = Math.max(0, position - 1);
     }
     order.splice(insertPos, 0, entryName);
+    dbg('dnd', 'new order', { order, oldIdx, insertPos });
     setOrder(srcParent, order);
   } else {
     // Move between directories
