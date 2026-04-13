@@ -1142,6 +1142,27 @@ async function exportMarkdown() {
 }
 
 // ── New project ──────────────────────────────────────────────────────────────
+async function closeProject() {
+  if (Object.keys(files).length > 0) {
+    if (!await bcConfirm('Close this project? Unsaved changes will be lost.')) return;
+  }
+  files = {};
+  tree = [];
+  _preservedZip = null;
+  _bacalhauFileHandle = null;
+  projectName = '';
+  activeFile = null;
+  gitLog = [];
+  localStorage.removeItem('bc-project');
+  document.getElementById('editorScroll').innerHTML = '';
+  document.getElementById('preview').innerHTML = '';
+  document.getElementById('projectName').textContent = '';
+  document.getElementById('wordCount').textContent = '';
+  document.getElementById('welcomeOverlay').style.display = 'flex';
+  switchPanel('files');
+  setStatus('');
+}
+
 async function startNewProject() {
   files = { 'title.md': '# My Manuscript\n\n', '01-chapter.md': '### Chapter One\n\n' };
   _preservedZip = null;
