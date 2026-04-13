@@ -4,7 +4,7 @@
 
 # Bacalhau
 
-A native desktop manuscript editor for long-form writing projects. Single Go binary, no dependencies.
+A manuscript editor for long-form writing projects.
 
 ---
 
