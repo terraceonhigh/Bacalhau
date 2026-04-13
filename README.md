@@ -40,6 +40,21 @@ Double-click to launch. On first launch, right-click → Open (unsigned).
 ./Bacalhau                         # no args — shows welcome screen
 ```
 
+## Web Edition
+
+A fully browser-based version runs at **https://terraceonhigh.github.io/Bacalhau/** — no install required.
+
+- Open and save `.bacalhau` files via the browser's file picker
+- Full editor: sidebar, drag-and-drop reordering, live preview, themes
+- Real Git history via [isomorphic-git](https://isomorphic-git.org/) — commits made in the browser are visible in the desktop app and vice versa
+- `_order.yaml` ordering interop — file order round-trips between web and desktop
+- Session auto-saved to localStorage; survives page reloads
+- Ctrl/Cmd+S saves, Ctrl/Cmd+O opens
+
+**Not available in the web edition:** native filesystem access (save triggers a download), PDF export, folder browsing.
+
+The web edition source lives in `docs/` on the `gh-pages-app` branch.
+
 ## Requirements
 
 - **macOS 10.13+** or **Linux** with a display server
@@ -141,6 +156,7 @@ CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags "desktop,producti
 | `icons/` | Icon assets and generator script |
 | `packaging/` | macOS Info.plist template |
 | `build-app.sh` | Builds `Bacalhau.app` for macOS |
+| `docs/` | Web edition (GitHub Pages) — browser-only SPA |
 | `DESIGN.md` | UI specification |
 | `ARCHITECTURE.md` | API and module contracts |
 | `CREDITS.md` | Icon attribution |
