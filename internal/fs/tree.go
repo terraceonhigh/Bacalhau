@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"unicode"
 )
 
@@ -129,8 +128,15 @@ func walkFilesRecurse(directory string, files *[]string) {
 }
 
 // isWritable checks if a file is writable by the current user.
+// Uses os.OpenFile with O_WRONLY rather than syscall.Access because
+// Access is POSIX-only and undefined on Windows.
 func isWritable(path string) bool {
-	return syscall.Access(path, syscall.O_RDWR) == nil
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	return true
 }
 
 // titleCase capitalises the first letter of each word (replaces deprecated

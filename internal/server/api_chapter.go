@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	bfs "github.com/terraceonhigh/Bacalhau/internal/fs"
 )
@@ -47,11 +46,14 @@ func (s *Server) putChapter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check read-only.
+	// Check read-only. Open the file for writing as a portable
+	// access probe — syscall.Access is POSIX-only.
 	if _, statErr := os.Stat(abspath); statErr == nil {
-		if syscall.Access(abspath, syscall.O_RDWR) != nil {
+		if f, err := os.OpenFile(abspath, os.O_WRONLY, 0); err != nil {
 			sendJSON(w, http.StatusForbidden, map[string]any{"error": "File is read-only"})
 			return
+		} else {
+			f.Close()
 		}
 	}
 
