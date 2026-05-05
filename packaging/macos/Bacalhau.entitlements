@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Bacalhau is a Wails-based markdown editor — a Go binary embedding
+        WKWebView. The hardened runtime that notarization requires breaks
+        WKWebView's JIT and dynamic library loading by default; the three
+        entitlements below are the minimal set that lets it run while
+        still satisfying notarytool's checks.
+    -->
+
+    <!-- WKWebView's JavaScriptCore needs to JIT-compile JS. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Some webview stacks (and some Go runtimes) use unsigned exec
+         memory pages; without this hardened runtime kills them. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- WKWebView dynamically loads WebKit's helper dylibs (with
+         non-Apple team IDs in some macOS versions); strict library
+         validation rejects them. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>
