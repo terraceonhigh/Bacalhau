@@ -1,57 +1,63 @@
 # Bacalhau Architecture Specification
 
-This document defines the interfaces between Bacalhau's modules. Any implementation conforming to these contracts — in any language or runtime — will produce a functional Bacalhau installation.
+This document defines the interfaces between Bacalhau's modules. Any implementation conforming to these contracts will produce a functional Bacalhau installation.
 
 ---
 
 ## System Overview
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Browser (frontend)                                  │
-│  static/index.html + static/style.css + static/app.js│
-│                                                       │
-│  Communicates via HTTP JSON API on localhost          │
-└──────────────────────┬──────────────────────────────┘
-                       │ HTTP (localhost only)
-┌──────────────────────▼──────────────────────────────┐
-│  Server (backend)                                    │
-│  Serves static files, handles API routes             │
-│                                                       │
-│  Reads/writes project files on local filesystem      │
-│  Shells out to git for version control               │
-└──────────────────────┬──────────────────────────────┘
-                       │ Filesystem + subprocess
-┌──────────────────────▼──────────────────────────────┐
-│  Project directory (chapters/, _order.yaml, .git/)   │
-│  Themes directory (CSS files)                        │
-│  Vendor directory (markdown-it.min.js, pdfme, etc.)  │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Wails webview (WebKit on macOS/Linux, WebView2 on Windows) │
+│  Loads / from the in-process AssetServer                    │
+│  static/index.html + static/style.css + static/app.js       │
+│                                                              │
+│  Communicates with the backend in two ways:                  │
+│    1. fetch() against the HTTP handler (in-process)          │
+│    2. window.go.main.app.* — Wails-bound native methods      │
+│       (OpenFile, SaveToFile) for OS file dialogs             │
+└─────────────────────────────┬───────────────────────────────┘
+                              │ in-process Go calls
+┌─────────────────────────────▼───────────────────────────────┐
+│  Go server (internal/server)                                 │
+│  http.Handler wired into Wails AssetServer — there is no     │
+│  TCP port; Wails dispatches requests directly.               │
+│                                                              │
+│  Reads/writes project files on the local filesystem.         │
+│  Shells out to git for version control.                      │
+└─────────────────────────────┬───────────────────────────────┘
+                              │ filesystem + subprocess
+┌─────────────────────────────▼───────────────────────────────┐
+│  Project directory (chapters/, _order.yaml, optional .git/)  │
+│  User themes directory (CSS files)                           │
+│  Embedded assets (static/, vendor_js/, themes/) baked into   │
+│  the Go binary via go:embed                                  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-The frontend and backend communicate **exclusively** via the HTTP API defined below. There is no shared memory, no WebSocket, no server-side rendering. The frontend is a static single-page app; the backend is a stateless HTTP server with mutable filesystem access.
+The frontend talks to the backend over (a) the HTTP API defined below and (b) a small set of Wails-bound methods that need OS-level access (native file dialogs). There is no shared memory, no WebSocket, no server-side rendering. The frontend is a static single-page app; the backend is an in-process HTTP handler with mutable filesystem access.
 
 ---
 
 ## 1. Shared State
 
-The backend maintains five mutable globals that govern its behaviour:
+The backend maintains four mutable fields plus a heartbeat timestamp on a single `state.AppState` value (`internal/state/state.go`). All access is mediated by a `sync.RWMutex`.
 
-| Name | Type | Description |
+| Field | Type | Description |
 |------|------|-------------|
-| `CHAPTERS_DIR` | string or null | Absolute path to the active project's markdown directory |
-| `BACALHAU_FILE` | string or null | Absolute path to the `.bacalhau` file (if opened from one via CLI) |
-| `BACALHAU_NAME` | string or null | Original filename of a browser-uploaded `.bacalhau` file |
-| `TEMP_DIR` | string or null | Absolute path to temp extraction directory (cleaned up on exit) |
-| `_last_heartbeat` | float | Unix timestamp of last heartbeat from the browser |
+| `chaptersDir` | string | Absolute path to the active project's markdown directory |
+| `bacalhauFile` | string | Absolute path to the `.bacalhau` file (when opened from one via CLI) |
+| `bacalhauName` | string | Original filename when a `.bacalhau` was uploaded through the UI |
+| `tempDir` | string | Absolute path to temp extraction directory (cleaned up at shutdown) |
+| `lastHeartbeat` | time.Time | Timestamp of last `/api/heartbeat` from the frontend |
 
-These are set by the entry point at startup and mutated by the `open/project` and `open/folder` API endpoints. All other backend code reads them but does not set them (except `_last_heartbeat`, updated by the heartbeat endpoint).
+These are populated at startup by `main.go` and mutated by the `/api/open` and `/api/open/folder` endpoints. All other code reads them via the typed accessors (`ChaptersDir()`, `SetChaptersDir()`, etc.).
 
 ---
 
 ## 2. HTTP API Contract
 
-All API endpoints are served on `http://127.0.0.1:<port>`. Requests and responses use `Content-Type: application/json` unless otherwise noted. Errors return `{"error": "<message>"}`.
+The handler is served in-process via Wails `AssetServer.Handler`. The frontend issues normal `fetch()` calls against relative paths; there is no TCP port to connect to. Requests and responses use `Content-Type: application/json` unless otherwise noted. Errors return `{"error": "<message>"}`.
 
 ### 2.1 Static Assets
 
@@ -59,14 +65,14 @@ All API endpoints are served on `http://127.0.0.1:<port>`. Requests and response
 |--------|------|----------|
 | GET | `/` | `text/html` — the main SPA (`static/index.html`) |
 | GET | `/favicon.png` | `image/png` — app icon |
-| GET | `/static/<name>` | Static file from `static/` directory (html, css, js) |
-| GET | `/vendor/<name>` | Vendored library from `vendor/` directory |
-| GET | `/api/themes/<name>` | `text/css` — theme CSS file |
+| GET | `/static/<path>` | Static file from embedded `static/` (html, css, js) |
+| GET | `/vendor/<path>` | Vendored JS from embedded `vendor_js/` (currently `markdown-it.min.js`) |
+| GET | `/api/themes/<name>` | `text/css` — theme CSS file (bundled or user-imported) |
 
 ### 2.2 Project Tree
 
 #### `GET /api/tree`
-Returns the hierarchical file structure of `CHAPTERS_DIR`.
+Returns the hierarchical file structure of `chaptersDir`.
 
 ```json
 {
@@ -91,14 +97,14 @@ Returns the hierarchical file structure of `CHAPTERS_DIR`.
 ```
 
 - `tree`: recursive array of nodes. Directories have `children`.
-- `path`: relative to `CHAPTERS_DIR`. Directories end with `/`.
+- `path`: relative to `chaptersDir`. Directories end with `/`.
 - `heading`: first `# Heading` found in the file (or `_part.md` for dirs). May be empty.
 - `writable`: `false` if the file has its read-only flag set.
-- `project`: display name derived from `BACALHAU_NAME`, `BACALHAU_FILE`, or directory name.
+- `project`: display name derived from `bacalhauName`, `bacalhauFile`, or the directory name.
 - Ordering follows `_order.yaml` in each directory. Unlisted files are appended alphabetically.
 
 #### `GET /api/chapter/<path>`
-Returns file content.
+Returns file content:
 ```json
 {"content": "# Title\n\nBody text..."}
 ```
@@ -107,7 +113,7 @@ Returns file content.
 Save file content. Body: `{"content": "..."}`. Response: `{"ok": true}`.
 
 #### `GET /api/preview`
-Returns all markdown files in order for rendering.
+Returns all markdown files in order for rendering:
 ```json
 {
   "files": [
@@ -126,7 +132,7 @@ All return `{"ok": true}` or `{"error": "..."}`.
 | POST | `/api/chapter/new` | `{slug, dir, position?, autoIncrement?}` | Create new `.md` file |
 | POST | `/api/dir/new` | `{name, dir, position?, autoIncrement?}` | Create new directory |
 | POST | `/api/rename` | `{path, newName, type}` | Rename file or directory |
-| POST | `/api/tree/move` | `{src, src_type, dest_dir, position}` | Move/reorder item |
+| POST | `/api/tree/move` | `{src, src_type, dest_dir, position}` | Move / reorder item |
 | POST | `/api/chapter/<path>/copy` | — | Duplicate file |
 | POST | `/api/dir/<path>/copy` | — | Duplicate directory |
 | POST | `/api/chapter/<path>/chmod` | — | Toggle read-only flag |
@@ -137,12 +143,14 @@ All return `{"ok": true}` or `{"error": "..."}`.
 - `autoIncrement`: if `true` and the slug conflicts, append `-2`, `-3`, etc.
 - All operations update the relevant `_order.yaml` files.
 
-### 2.4 Export
+The router uses two catch-all dispatchers (`postChapterDispatch`, `postDirDispatch`) because Go 1.22 `http.ServeMux` doesn't support suffix matching; they route by trailing `/copy` or `/chmod`.
+
+### 2.4 Export & Save
 
 | Method | Path | Response |
 |--------|------|----------|
-| GET | `/api/export/markdown` | `application/octet-stream` — assembled `.md` with scene numbers |
-| GET | `/api/export/pdf` | `application/pdf` — rendered PDF |
+| GET | `/api/export/markdown` | `text/markdown` — assembled `.md` with scene numbers |
+| GET | `/api/export/html` | `text/html` — assembled HTML page that auto-triggers `window.print()` once loaded in a browser context |
 | GET | `/api/save/zip` | `application/octet-stream` — `chapters/` as `.zip` |
 | GET | `/api/save/bacalhau` | JSON `{"message","path"}` if in-place save, or `application/octet-stream` download |
 
@@ -150,18 +158,18 @@ All return `{"ok": true}` or `{"error": "..."}`.
 
 #### `POST /api/open`
 Open an uploaded `.bacalhau` file. Body: `{"filename": "novel.bacalhau", "data": "<base64>"}`.
-Extracts to a temp directory, sets `CHAPTERS_DIR`, `BACALHAU_NAME`, `TEMP_DIR`.
-Response: `{"ok": true, "name": "novel.bacalhau"}`.
+Extracts to a temp directory, sets `chaptersDir`, `bacalhauName`, `tempDir`. Response: `{"ok": true, "name": "novel.bacalhau"}`.
+
+In the desktop app, the frontend gets the base64 payload from the Wails-bound `app.OpenFile()` method (see Section 6).
 
 #### `POST /api/open/folder`
 Switch to a local directory. Body: `{"path": "/Users/alice/novel/chapters"}`.
-Restricted to the user's home directory. Sets `CHAPTERS_DIR`, clears `BACALHAU_FILE`/`TEMP_DIR`.
-Response: `{"ok": true, "path": "/Users/alice/novel/chapters"}`.
+Restricted to the user's home directory. Sets `chaptersDir`, clears `bacalhauFile` / `bacalhauName` / `tempDir`. Response: `{"ok": true, "path": "/Users/alice/novel/chapters"}`.
 
 ### 2.6 Folder Browser
 
 #### `GET /api/browse?path=<url-encoded-path>`
-List subdirectories. If no `path`, defaults to home directory. Restricted to home.
+List subdirectories. With no `path`, defaults to the home directory. Restricted to home.
 
 ```json
 {
@@ -178,13 +186,13 @@ List subdirectories. If no `path`, defaults to home directory. Restricted to hom
 }
 ```
 
-- `isProject`: `true` if directory contains `_order.yaml` or any `.md` files.
+- `isProject`: `true` if the directory contains `_order.yaml` or any `.md` files.
 - `mdCount`: count of `.md` files in that directory (non-recursive).
 - Hidden directories (starting with `.`) are excluded.
 
 ### 2.7 Git Integration
 
-All git operations shell out to the system `git` binary. The git root is the closest ancestor of `CHAPTERS_DIR` containing `.git/`.
+All git operations shell out to the system `git` binary. The git root is the closest ancestor of `chaptersDir` containing `.git/`.
 
 #### `GET /api/git/status`
 ```json
@@ -201,7 +209,7 @@ All git operations shell out to the system `git` binary. The git root is the clo
 - `status`: one of `M` (modified), `A` (added), `D` (deleted), `?` (untracked), `R` (renamed).
 - `staged`: `true` if in the index, `false` if in the working tree.
 - Paths are relative to the project scope, not the git root.
-- Auto-stages all unstaged changes on every refresh (frontend behaviour).
+- The frontend auto-stages all unstaged changes on every panel refresh.
 
 #### `POST /api/git/init`
 Initialize a new git repo. Body: `{}`. Response: `{"ok": true}`.
@@ -218,7 +226,7 @@ Body: `{"message": "finished chapter 3"}`. Auto-stages all changes before commit
 Response: `{"ok": true, "sha": "abc1234"}`.
 
 #### `GET /api/git/log`
-Returns last 20 commits touching the project scope.
+Returns the last 20 commits touching the project scope:
 ```json
 {
   "commits": [
@@ -240,16 +248,19 @@ Response: `{"ok": true, "message": "Restored to: finished chapter 3"}`.
 ```
 
 #### `POST /api/themes/import`
-Body: `{"filename": "my-theme.css", "data": "<base64>"}`. Saves to user themes directory.
+Body: `{"filename": "my-theme.css", "data": "<base64>"}`. Saves to the platform-specific user themes directory.
 Response: `{"ok": true, "name": "my-theme.css"}`.
 
 ### 2.9 Lifecycle
 
+#### `GET /api/version`
+Response: `{"version": "vX.Y.Z"}`. Set at build time via `-ldflags "-X main.version=..."`.
+
 #### `GET /api/heartbeat`
-Response: `{"ok": true}`. Updates `_last_heartbeat`. Frontend sends this every 10 seconds.
+Response: `{"ok": true}`. Updates `lastHeartbeat`. The frontend pings this periodically.
 
 #### `POST /api/shutdown`
-Repacks `.bacalhau` if applicable, then exits. Sent via `navigator.sendBeacon` on page close.
+Calls `repackFn` (writes the current project back to its `.bacalhau` file if applicable), responds, and then asynchronously triggers `shutdownFn`, which calls Wails `Quit`. Used during clean app exit.
 
 ---
 
@@ -257,7 +268,7 @@ Repacks `.bacalhau` if applicable, then exits. Sent via `navigator.sendBeacon` o
 
 ### 3.1 Project Directory
 
-A Bacalhau project is a directory containing `.md` files, optionally organized in subdirectories. Each directory may contain an `_order.yaml` to control sibling order.
+A Bacalhau project is a directory containing `.md` files, optionally organised in subdirectories. Each directory may contain an `_order.yaml` to control sibling order.
 
 ```
 chapters/
@@ -280,7 +291,7 @@ Plain text, one entry per line, prefixed with `- `. Directories end with `/`.
 - part-two/
 ```
 
-Unlisted files/dirs are appended alphabetically. Missing file = ignored silently.
+Unlisted files/dirs are appended alphabetically. A missing entry is ignored silently.
 
 ### 3.3 `.bacalhau` Format
 
@@ -296,7 +307,7 @@ latex/              # optional — LaTeX assets
   ...
 ```
 
-When opened, extracted to a temp directory. On save, repacked with all three directories.
+When opened, it is extracted to a temp directory. On save, it is repacked with all three directories.
 
 ### 3.4 Theme CSS
 
@@ -316,56 +327,80 @@ A CSS file that overrides `:root` custom properties:
 }
 ```
 
-Optional overrides for fonts and element-specific styling.
+Optional overrides for fonts and element-specific styling are supported.
 
 ---
 
 ## 4. Module Responsibilities
 
-### Entry Point (`editor.py`)
-- Parse CLI arguments (project path, port)
-- Initialize shared state (set `CHAPTERS_DIR`, etc.)
-- Extract `.bacalhau` to temp dir if applicable
-- Start HTTP server
-- Launch browser window
-- Run heartbeat watchdog thread
-- Handle signals (SIGTERM, SIGHUP) for graceful shutdown
-- Repack `.bacalhau` on exit
+### `main.go` — Entry point
+- Parses CLI args (project path).
+- Initialises shared state (sets `chaptersDir`, `bacalhauFile`, `tempDir`).
+- Extracts `.bacalhau` to a temp dir if applicable.
+- Constructs the `*server.Server` and hands its `Handler()` to Wails as the AssetServer.
+- Launches the Wails window (title, size, lifecycle hooks).
+- Exposes Wails-bound methods (`OpenFile`, `SaveToFile`) — see Section 6.
+- On Wails `OnShutdown`: repacks `.bacalhau` if applicable, then removes temp dirs.
 
-### Server (`server.py`)
-- HTTP request handler implementing all routes in Section 2
-- Serves static files from `static/` and `vendor/`
-- Calls helper functions for filesystem/git operations
-- Stateless except for reading/writing shared state
+### `internal/server/` — HTTP handler
+- `server.go`: route table (`Handler()`) and two suffix dispatchers.
+- `api_*.go`: one file per logical group of endpoints (`tree`, `chapter`, `files`, `export`, `project`, `git`, `themes`, `lifecycle`).
+- `helpers.go`: shared utilities (`sendJSON`, path resolution, project-name derivation, etc.).
+- Stateless except for reading/writing `*state.AppState` and a `fsMu` mutex around export operations.
 
-### Helpers (`helpers.py`)
-- Pure filesystem operations: read/write `_order.yaml`, build tree, walk files
-- Git operations: shell out to `git`, parse porcelain output
-- Theme management: list/find/import themes
-- Bacalhau repack: ZIP assembly with chapters, latex, .git
-- No HTTP awareness — these are called by the server, never call it
+### `internal/fs/` — Filesystem operations
+- `tree.go`: `WalkFiles`, tree construction in `_order.yaml` order.
+- `order.go`: parse / write `_order.yaml`.
+- `bacalhau.go`: ZIP extract (with zip-slip protection) and repack for `.bacalhau` files.
 
-### Frontend (`static/`)
-- Single-page app: HTML shell, CSS, JavaScript
-- Communicates with backend exclusively via `fetch()` to the API
-- Renders markdown via vendored `markdown-it`
-- Manages all UI state (active file, scroll sync, git panel, etc.)
-- Sends heartbeat every 10 seconds
-- Sends shutdown beacon on page close
+### `internal/git/` — Version control
+- Thin shell wrapper around the system `git` binary.
+- Status parsing of `git status --porcelain`, scoped to the project subdirectory of the git root.
 
-### Shared State (`state.py`)
-- Five mutable variables (see Section 1)
-- No logic — only data
-- Imported by server and helpers
+### `internal/state/` — Shared state
+- `AppState` struct with mutex-protected getters and setters for the fields in Section 1.
+- No business logic.
+
+### `internal/themes/` — Theme management
+- Discovery: list bundled themes (from the embedded `themes/` FS) and any user-imported themes from the platform-specific user data dir.
+- Import: validate filename (no path separators or dotfiles) and write to the user themes directory.
+
+### `static/` — Frontend SPA
+- Single-page app: `index.html`, `style.css`, `app.js`.
+- Communicates with the backend via `fetch()` to `/api/*` and (for OS file dialogs) via `window.go.main.app.*`.
+- Renders markdown client-side using vendored `markdown-it`.
+- Manages all UI state (active file, scroll sync, git panel, etc.).
+- Sends heartbeat pings to `/api/heartbeat`.
+
+### `vendor_js/` — Vendored JavaScript
+- `markdown-it.min.js`. (The directory is named `vendor_js/` rather than `vendor/` to avoid conflicting with the Go module vendor convention.)
+
+### `themes/` — Bundled CSS themes
+- `azulejo.css`, `azulejo-dark.css`, `calcada.css`, `calcada-dark.css`. All four are embedded into the binary.
 
 ---
 
-## 5. Security Boundaries
+## 5. Wails-bound Methods
 
-- Server binds to `127.0.0.1` only — not accessible from the network.
-- `resolve_path()` prevents path traversal (rejects paths escaping `CHAPTERS_DIR`).
-- Folder browser restricted to the user's home directory.
+Two Go methods on `*app` (in `main.go`) are bound to the JavaScript runtime and accessible as `window.go.main.app.<Name>(...)`:
+
+### `OpenFile() → {filename, data}`
+Opens a native file-open dialog filtered to `*.bacalhau`. Returns the basename and base64-encoded contents of the chosen file, or `null` if cancelled. The frontend then POSTs the payload to `/api/open`.
+
+### `SaveToFile(suggestedName, filterDesc, filterPattern, b64data) → path`
+Opens a native save dialog with the given filename suggestion and file filter, then writes the decoded data to the chosen path. Returns the chosen path, or `""` if cancelled.
+
+These exist because browsers (even inside a webview) cannot read or write arbitrary local paths without OS-level permission prompts. Wails provides the bridge.
+
+---
+
+## 6. Security Boundaries
+
+- No TCP port is opened. The HTTP handler runs in-process behind Wails AssetServer and is not reachable from the network.
+- `resolve_path()` prevents path traversal (rejects paths escaping `chaptersDir`).
+- The folder browser is restricted to the user's home directory.
 - ZIP extraction includes zip-slip protection.
-- Vendor file serving rejects paths containing `/` or starting with `.`.
-- Theme import validates filename (no path separators or dotfiles).
-- No user authentication — single-user, localhost only.
+- Vendor file serving rejects paths containing `..` or starting with `.`.
+- Theme import validates the filename (no path separators or dotfiles).
+- No user authentication — single-user desktop application.
+- macOS releases are signed with a Developer ID certificate and Apple-notarized; the `.app` and `.dmg` are both stapled. The hardened runtime is enabled and entitlements are minimal (see `packaging/macos/Bacalhau.entitlements`).
