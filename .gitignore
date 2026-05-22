@@ -4,3 +4,10 @@ build/
 __pycache__/
 AGENTS.md
 /Bacalhau
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store
+
+# Scratch / one-off shell scripts left behind
+tmp-*.sh
